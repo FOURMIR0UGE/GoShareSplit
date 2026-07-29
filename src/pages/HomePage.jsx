@@ -4,7 +4,7 @@ import {
   Plus, Search, ShieldCheck, Sun, Wrench, X
 } from 'lucide-react'
 import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
-import { createAlert, createOffer, createSuggestion, getPublicMeta, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
+import { createAlert, createOffer, createSuggestion, deleteOffer, getAdminSession, getPublicMeta, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
 import { detectPlatform, invalidLinkMessage } from '../lib/platform'
 import Modal from '../components/Modal'
 import OfferCard from '../components/OfferCard'
@@ -53,6 +53,7 @@ function matchingServices(query, limit=14, selectedCategory='Autre') {
 
 export default function HomePage() {
   const [offers, setOffers] = useState([])
+  const [adminSession, setAdminSession] = useState({ authenticated:false, csrf:null, user:null })
   const [publicMeta, setPublicMeta] = useState({ catalog:{ services:[] }, settings:{} })
   const [priceWarning, setPriceWarning] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -93,7 +94,7 @@ export default function HomePage() {
     catch (e) { setNotice(`Erreur de chargement : ${e.message}`) }
     finally { setLoading(false) }
   }
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh(); getAdminSession().then(setAdminSession).catch(()=>{}) }, [])
   useEffect(() => { if (!notice) return; const t=setTimeout(()=>setNotice(''),3500); return()=>clearTimeout(t) }, [notice])
 
   const offerServices = useMemo(() => matchingServices(form.service, 14, form.category), [form.service, form.category])
@@ -204,6 +205,18 @@ export default function HomePage() {
     }
   }
 
+  async function adminDeleteOffer(offer) {
+    if (!adminSession?.authenticated || !adminSession?.csrf) return
+    if (!confirm(`Supprimer définitivement l’annonce « ${offer.service}${offer.plan ? ` — ${offer.plan}` : ''} » ?`)) return
+    try {
+      await deleteOffer(offer.id, adminSession.csrf)
+      setOffers(current => current.filter(item => item.id !== offer.id))
+      setNotice('Annonce supprimée.')
+    } catch (e) {
+      setNotice(e.message === 'forbidden' ? 'Votre compte ne possède pas la permission de supprimer les annonces.' : 'Impossible de supprimer cette annonce.')
+    }
+  }
+
   async function submitSuggestion(e) {
     e.preventDefault()
     await createSuggestion({
@@ -284,7 +297,7 @@ export default function HomePage() {
 
           {loading ? <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i=><div key={i} className="h-72 animate-pulse rounded-3xl bg-slate-800/60 light:bg-slate-300"/>)}</div>
           : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>
-              {visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={isNew} list={view==='list'}/>})}
+              {visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} onAdminDelete={adminSession?.authenticated?adminDeleteOffer:null} featured={isNew} list={view==='list'}/>})}
               <article className={`overflow-hidden rounded-3xl border border-emerald-300/20 bg-gradient-to-br from-emerald-400/15 via-slate-900/85 to-sky-400/10 shadow-xl light:from-emerald-100 light:via-white light:to-sky-100 ${view==='list'?'p-6 sm:flex sm:items-center sm:justify-between sm:gap-6':'flex min-h-[300px] flex-col p-5'}`}>
                 <div className={view==='list'?'flex min-w-0 items-center gap-4':'flex flex-1 flex-col'}>
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={22}/></div>
