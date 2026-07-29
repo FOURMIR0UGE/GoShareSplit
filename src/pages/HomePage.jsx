@@ -12,7 +12,6 @@ import OfferCard from '../components/OfferCard'
 const initialForm = { link:'', service:'', serviceId:'', plan:'', price:'1.00', seats:1, category:'Autre', platform:'', icon:'📦' }
 const initialAlert = { email:'', service:'', serviceId:'' }
 const initialSuggestion = { name:'', category:'Autre', website:'', source:'menu' }
-const platforms = ['Toutes', 'Spliiit', 'Sharesub', 'GoSplit']
 
 function normalize(value='') { return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() }
 function isExpired(offer) { return new Date(offer.expires_at).getTime() <= Date.now() }
@@ -57,7 +56,6 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Toutes')
-  const [platform, setPlatform] = useState('Toutes')
   const [sort, setSort] = useState('featured')
   const [view, setView] = useState('grid')
   const [theme, setTheme] = useState(() => localStorage.getItem('gosharesplit-theme') || 'dark')
@@ -99,15 +97,34 @@ export default function HomePage() {
     const q = normalize(search)
     const filtered = offers.filter(o => !o.hidden && !isExpired(o)
       && (category==='Toutes'||o.category===category)
-      && (platform==='Toutes'||o.platform===platform)
       && (!q || normalize(`${o.service} ${o.plan} ${o.category} ${o.platform}`).includes(q)))
+
     if (sort === 'newest') return [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
-    if (sort === 'price') return [...filtered].sort((a,b)=>Number(a.price)-Number(b.price))
+    if (sort === 'oldest') return [...filtered].sort((a,b)=>new Date(a.published_at)-new Date(b.published_at))
+    if (sort === 'price-asc') return [...filtered].sort((a,b)=>Number(a.price)-Number(b.price))
+    if (sort === 'price-desc') return [...filtered].sort((a,b)=>Number(b.price)-Number(a.price))
     if (sort === 'seats') return [...filtered].sort((a,b)=>Number(b.seats)-Number(a.seats))
-    const recent = [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at)).slice(0,3)
-    const rest = filtered.filter(o => !recent.some(r => r.id===o.id))
-    return [...recent, ...shuffleStable(rest)]
-  }, [offers, search, category, platform, sort])
+
+    // Recommandé : 2 plus récentes, puis services populaires, puis aléatoire,
+    // avec les annonces les plus signalées repoussées en bas.
+    const byDate = [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
+    const recent = byDate.slice(0,2)
+    const recentIds = new Set(recent.map(o=>o.id))
+    const remaining = filtered.filter(o=>!recentIds.has(o.id))
+    const clean = remaining.filter(o=>Number(o.reports_count||0)===0)
+    const reported = remaining.filter(o=>Number(o.reports_count||0)>0)
+    const popularity = new Map(featuredServiceIds.map((id,index)=>[id, featuredServiceIds.length-index]))
+    const popular = clean.filter(o=>popularity.has(o.service_id || normalize(o.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')))
+      .sort((a,b)=>{
+        const aId = a.service_id || normalize(a.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')
+        const bId = b.service_id || normalize(b.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')
+        return (popularity.get(bId)||0)-(popularity.get(aId)||0)
+      })
+    const popularIds = new Set(popular.map(o=>o.id))
+    const random = shuffleStable(clean.filter(o=>!popularIds.has(o.id)))
+    const reportedLast = [...reported].sort((a,b)=>Number(a.reports_count||0)-Number(b.reports_count||0))
+    return [...recent, ...popular, ...random, ...reportedLast]
+  }, [offers, search, category, sort])
 
   function updateLink(link) { setForm(f => ({...f, link, platform:detectPlatform(link)})); setError('') }
   function updateOfferService(value) { setForm(f => ({...f, service:value, serviceId:'', icon:categoryIcons[f.category] || '📦'})); setError('') }
@@ -222,16 +239,15 @@ export default function HomePage() {
             </div>
             <div className="mt-3 grid gap-3 border-t border-white/5 pt-4 lg:grid-cols-[1fr_auto] lg:items-end light:border-slate-300">
               <div><h2 className="text-2xl font-black">Annonces disponibles</h2><p className="text-sm text-slate-500">{visibleOffers.length} résultat{visibleOffers.length>1?'s':''}{search ? ` pour « ${search} »` : ''}</p></div>
-              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(170px,1fr)_auto]">
-                <div className="min-w-0"><select value={platform} onChange={e=>setPlatform(e.target.value)} className="control-select-native w-full" aria-label="Filtrer par plateforme">{platforms.map(p=><option key={p}>{p}</option>)}</select></div>
-                <div className="min-w-0"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select-native w-full" aria-label="Trier les annonces"><option value="featured">Recommandées</option><option value="newest">Plus récentes</option><option value="price">Prix croissant</option><option value="seats">Plus de places</option></select></div>
+              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_auto]">
+                <div className="min-w-0"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select-native w-full" aria-label="Trier les annonces"><option value="featured">Recommandé</option><option value="newest">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="price-asc">Prix croissant</option><option value="price-desc">Prix décroissant</option><option value="seats">Avec le plus de places</option></select></div>
                 <div className="flex justify-self-start rounded-xl border border-slate-700 p-1 sm:justify-self-end light:border-slate-300"><button onClick={()=>setView('grid')} className={`rounded-lg p-2 ${view==='grid'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue grille"><LayoutGrid size={17}/></button><button onClick={()=>setView('list')} className={`rounded-lg p-2 ${view==='list'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue liste"><List size={17}/></button></div>
               </div>
             </div>
           </div>
 
           {loading ? <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i=><div key={i} className="h-72 animate-pulse rounded-3xl bg-slate-800/60 light:bg-slate-300"/>)}</div>
-          : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>{visibleOffers.map((offer,index)=><OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={sort==='featured'&&index<3} list={view==='list'}/>)}</div>
+          : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>{visibleOffers.map((offer,index)=><OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={sort==='featured'&&index<2} list={view==='list'}/>)}</div>
           : <div className="rounded-3xl border border-dashed border-slate-700 py-20 text-center light:border-slate-400"><Search className="mx-auto mb-4 text-slate-500" size={38}/><h3 className="text-xl font-black">Aucune annonce trouvée</h3><p className="mt-2 text-slate-500">Modifie tes filtres ou crée une alerte.</p><button onClick={()=>setModal('alert')} className="mt-5 rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950">Créer une alerte</button></div>}
 
           <section className="relative mt-14 overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-gradient-to-br from-emerald-400/15 via-slate-900/80 to-sky-400/10 p-6 sm:p-9 light:from-emerald-100 light:via-white light:to-sky-100"><div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div className="max-w-2xl"><div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={21}/></div><h2 className="text-2xl font-black sm:text-3xl">L’annonce que tu cherches n’est pas encore disponible ?</h2><p className="mt-2 text-slate-400 light:text-slate-600">Choisis un service du catalogue et sois informé dès qu’une annonce correspondante est publiée.</p></div><button onClick={()=>setModal('alert')} className="shrink-0 rounded-2xl bg-emerald-400 px-6 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Créer une alerte gratuite</button></div></section>
