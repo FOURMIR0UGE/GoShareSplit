@@ -1,4 +1,4 @@
-import { ExternalLink, Flag, Sparkles, Trash2, Users } from 'lucide-react'
+import { ExternalLink, Flag, Pencil, Sparkles, Trash2, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 function daysLeft(expiresAt) { return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000)) }
@@ -12,7 +12,7 @@ const platformStyle = {
   GoSplit: 'bg-orange-400/10 text-orange-300 light:text-orange-700',
 }
 
-export default function OfferCard({ offer, onReport, onAdminDelete, featured=false, list=false }) {
+export default function OfferCard({ offer, onReport, onAdminEdit, onAdminDelete, featured=false, list=false }) {
   const remaining = daysLeft(offer.expires_at)
   const plan = cleanPlan(offer.service, offer.plan)
   return (
@@ -28,7 +28,7 @@ export default function OfferCard({ offer, onReport, onAdminDelete, featured=fal
       </div>
       <div className={`${list?'md:w-72':''}`}>
         <div className="mb-3 flex items-center justify-between gap-3 text-xs text-slate-500"><span>{offer.category}</span><span className={remaining<=7?'font-black text-orange-400':''}>{remaining} j restants</span></div>
-        <div className="flex gap-2"><a href={offer.link} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-3 font-black text-slate-950 transition hover:bg-emerald-300">Voir l’annonce <ExternalLink size={17}/></a><button onClick={() => onReport(offer.id)} title="Signaler une annonce" className="flex items-center gap-1 rounded-xl border border-slate-700 px-3 transition hover:border-red-400 hover:text-red-400 light:border-slate-300"><Flag size={17}/><span className="text-xs">{offer.reports_count || 0}</span></button>{onAdminDelete&&<button onClick={()=>onAdminDelete(offer)} title="Supprimer cette annonce (admin)" className="grid min-w-11 place-items-center rounded-xl border border-red-400/50 bg-red-400/10 px-3 text-red-300 transition hover:bg-red-400 hover:text-white light:text-red-700"><Trash2 size={17}/></button>}</div>
+        <div className="flex gap-2"><a href={offer.link} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-3 font-black text-slate-950 transition hover:bg-emerald-300">Voir l’annonce <ExternalLink size={17}/></a><button onClick={() => onReport(offer.id)} title="Signaler une annonce" className="flex items-center gap-1 rounded-xl border border-slate-700 px-3 transition hover:border-red-400 hover:text-red-400 light:border-slate-300"><Flag size={17}/><span className="text-xs">{offer.reports_count || 0}</span></button>{onAdminEdit&&<button onClick={()=>onAdminEdit(offer)} title="Modifier cette annonce (admin)" className="grid min-w-11 place-items-center rounded-xl border border-sky-400/50 bg-sky-400/10 px-3 text-sky-300 transition hover:bg-sky-400 hover:text-slate-950 light:text-sky-700"><Pencil size={17}/></button>}{onAdminDelete&&<button onClick={()=>onAdminDelete(offer)} title="Supprimer cette annonce (admin)" className="grid min-w-11 place-items-center rounded-xl border border-red-400/50 bg-red-400/10 px-3 text-red-300 transition hover:bg-red-400 hover:text-white light:text-red-700"><Trash2 size={17}/></button>}</div>
       </div>
     </motion.article>
   )

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, Moon,
+  Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, LockKeyhole, Moon,
   Plus, Search, ShieldCheck, Sun, Wrench, X
 } from 'lucide-react'
 import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
-import { createAlert, createOffer, createSuggestion, deleteOffer, getAdminSession, getPublicMeta, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
+import { createAlert, createOffer, createSuggestion, deleteOffer, getAdminSession, getPublicMeta, listOffers, reportOffer, requestAlertManagement, updateOffer } from '../lib/store'
 import { detectPlatform, invalidLinkMessage } from '../lib/platform'
 import Modal from '../components/Modal'
 import OfferCard from '../components/OfferCard'
@@ -54,6 +54,7 @@ function matchingServices(query, limit=14, selectedCategory='Autre') {
 export default function HomePage() {
   const [offers, setOffers] = useState([])
   const [adminSession, setAdminSession] = useState({ authenticated:false, csrf:null, user:null })
+  const [editingOffer, setEditingOffer] = useState(null)
   const [publicMeta, setPublicMeta] = useState({ catalog:{ services:[] }, settings:{} })
   const [priceWarning, setPriceWarning] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -74,6 +75,12 @@ export default function HomePage() {
   const [reporting, setReporting] = useState(null)
   const [reportReason, setReportReason] = useState('no_seats')
   const categoriesRef = useRef(null)
+
+  function hasAdminPermission(permission) {
+    const user = adminSession?.user
+    if (!adminSession?.authenticated || !user) return false
+    return ['super','admin'].includes(user.role) || (user.permissions || []).includes(permission)
+  }
 
   function scrollCategories(direction) {
     categoriesRef.current?.scrollBy({ left: direction * Math.max(260, categoriesRef.current.clientWidth * 0.72), behavior: 'smooth' })
@@ -168,12 +175,17 @@ export default function HomePage() {
       reports_count:0, published_at:now.toISOString(),
       expires_at:new Date(now.getTime()+45*86400000).toISOString(), hidden:false,
     }
-    await createOffer(payload)
+    if (editingOffer) {
+      await updateOffer(editingOffer.id, payload, adminSession.csrf)
+    } else {
+      await createOffer(payload)
+    }
     await refresh()
     setForm(initialForm)
+    setEditingOffer(null)
     setPriceWarning(null)
     setModal(null)
-    setNotice('Votre annonce a été publiée avec succès.')
+    setNotice(editingOffer ? 'Annonce modifiée avec succès.' : 'Votre annonce a été publiée avec succès.')
   }
 
   async function submitOffer(e) {
@@ -182,10 +194,10 @@ export default function HomePage() {
     if (!detected) { setError(invalidLinkMessage); return }
     if (!form.serviceId) { setError('Sélectionne obligatoirement un service dans la liste proposée.'); return }
     if (Number(form.price)<=0 || Number(form.seats)<1) { setError('Merci de remplir correctement tous les champs obligatoires.'); return }
-    if (offers.some(o => o.link === form.link.trim())) { setError('Cette annonce a déjà été publiée. Merci de ne pas soumettre le même lien plusieurs fois.'); return }
+    if (offers.some(o => o.id !== editingOffer?.id && o.link === form.link.trim())) { setError('Cette annonce a déjà été publiée. Merci de ne pas soumettre le même lien plusieurs fois.'); return }
     const sameService = comparableOffers()
     const highest = sameService.length ? Math.max(...sameService.map(o => Number(o.price) || 0)) : 0
-    if (sameService.length >= 3 && Number(form.price) > highest) {
+    if (!editingOffer && sameService.length >= 3 && Number(form.price) > highest) {
       setPriceWarning({ highest, count:sameService.length })
       return
     }
@@ -203,6 +215,29 @@ export default function HomePage() {
     } catch (e) {
       setNotice(e.message==='already_reported' ? 'Vous avez déjà signalé cette annonce.' : 'Impossible d’enregistrer ce signalement.')
     }
+  }
+
+  function adminEditOffer(offer) {
+    if (!hasAdminPermission('offers.edit')) return
+    const catalogService = (publicMeta.catalog?.services || []).find(service => service.id === offer.service_id || normalize(service.name) === normalize(offer.service))
+    setEditingOffer(offer)
+    setForm({
+      link: offer.link || '',
+      service: catalogService?.name || offer.service || '',
+      serviceId: catalogService?.id || offer.service_id || '',
+      plan: cleanPlanForEdit(offer.service, offer.plan || ''),
+      price: String(offer.price ?? '1.00'),
+      seats: Number(offer.seats || 1),
+      category: catalogService?.category || offer.category || 'Autre',
+      platform: offer.platform || detectPlatform(offer.link || ''),
+      icon: catalogService?.icon || offer.icon || '📦',
+    })
+    setError('')
+    setModal('publish')
+  }
+
+  function cleanPlanForEdit(service, plan='') {
+    return cleanedPlan(plan, service || '')
   }
 
   async function adminDeleteOffer(offer) {
@@ -259,7 +294,8 @@ export default function HomePage() {
           <a href="#top" className="flex items-center gap-2.5 text-xl font-black tracking-tight"><span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-300 to-cyan-400 text-lg text-slate-950 shadow-glow" aria-hidden="true">{publicMeta.settings?.site_logo || '✨'}</span><span>GoShare<span className="text-emerald-400">Split</span></span></a>
           <div className="flex items-center gap-2">
             <button onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="icon-btn" aria-label="Changer de thème">{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button>
-            <button onClick={()=>setModal('publish')} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Ajouter une annonce</span><span className="sm:hidden">Publier</span></button>
+            {adminSession?.authenticated&&<a href="#/admin" className="icon-btn" aria-label="Retourner au panneau d’administration" title="Panneau d’administration"><LockKeyhole size={18}/></a>}
+            <button onClick={()=>{setEditingOffer(null);setForm(initialForm);setError('');setModal('publish')}} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Ajouter une annonce</span><span className="sm:hidden">Publier</span></button>
             <button onClick={()=>{setManageSent(false);setModal('manage-alerts')}} className="icon-btn" aria-label="Gérer mes alertes" title="Gérer mes alertes"><Bell size={18}/></button>
           </div>
         </div>
@@ -297,7 +333,7 @@ export default function HomePage() {
 
           {loading ? <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i=><div key={i} className="h-72 animate-pulse rounded-3xl bg-slate-800/60 light:bg-slate-300"/>)}</div>
           : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>
-              {visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} onAdminDelete={adminSession?.authenticated?adminDeleteOffer:null} featured={isNew} list={view==='list'}/>})}
+              {visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} onAdminEdit={hasAdminPermission('offers.edit')?adminEditOffer:null} onAdminDelete={hasAdminPermission('offers.delete')?adminDeleteOffer:null} featured={isNew} list={view==='list'}/>})}
               <article className={`overflow-hidden rounded-3xl border border-emerald-300/20 bg-gradient-to-br from-emerald-400/15 via-slate-900/85 to-sky-400/10 shadow-xl light:from-emerald-100 light:via-white light:to-sky-100 ${view==='list'?'p-6 sm:flex sm:items-center sm:justify-between sm:gap-6':'flex min-h-[300px] flex-col p-5'}`}>
                 <div className={view==='list'?'flex min-w-0 items-center gap-4':'flex flex-1 flex-col'}>
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={22}/></div>
@@ -321,7 +357,7 @@ export default function HomePage() {
 
       <footer className="border-t border-white/5 bg-slate-950/35 px-4 py-8 text-center text-sm text-slate-500 light:border-slate-300 light:bg-slate-200/70"><p className="font-black text-slate-300 light:text-slate-700">GoShareSplit</p><p className="mx-auto mt-2 max-w-3xl">Site indépendant. Paiements uniquement sur Spliiit, Sharesub et GoSplit. Les annonces expirent automatiquement après 45 jours.</p></footer>
 
-      {modal==='publish' && <Modal title="Ajouter une annonce" onClose={()=>setModal(null)} wide><form onSubmit={submitOffer} className="space-y-5">
+      {modal==='publish' && <Modal title={editingOffer?'Modifier l’annonce':'Ajouter une annonce'} onClose={()=>{setModal(null);setEditingOffer(null);setForm(initialForm);setError('')}} wide><form onSubmit={submitOffer} className="space-y-5">
         <div className="rounded-2xl border border-sky-400/20 bg-sky-400/8 p-4 text-sm text-sky-200 light:text-sky-800"><strong>Étape 1 :</strong> colle le lien de partage fourni par Spliiit, Sharesub ou GoSplit. La plateforme sera détectée automatiquement.</div>
         <label className="block"><span className="label">Lien de partage *</span><input required className={field} value={form.link} onChange={e=>updateLink(e.target.value)} placeholder="https://…"/></label>
         {form.platform && <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300 light:text-emerald-700"><CheckCircle2 size={16}/>Plateforme détectée : {form.platform}</div>}
@@ -332,7 +368,7 @@ export default function HomePage() {
         {form.serviceId && (()=>{const service=(publicMeta.catalog?.services||[]).find(s=>s.id===form.serviceId || normalize(s.name)===normalize(form.service));const count=Number(service?.active_alerts||0);return count>0?<div className="rounded-xl border border-orange-300/20 bg-orange-400/10 px-3 py-2 text-sm font-semibold text-orange-300 light:text-orange-700">🔥 {count} {count===1?'personne attend actuellement':'personnes attendent actuellement'} une offre pour ce service.</div>:null})()}
         <div className="grid gap-4 sm:grid-cols-2"><label><span className="label">Prix mensuel (€) *</span><input required min="0.01" step="0.01" type="number" className={field} value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label><span className="label">Places disponibles *</span><input required min="1" max="20" type="number" className={field} value={form.seats} onChange={e=>setForm({...form,seats:e.target.value})}/></label></div>
         {error && <p className="rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-400">{error}</p>}
-        <button className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Publier l’annonce</button><p className="text-center text-xs text-slate-500">Publication immédiate dans le catalogue.</p>
+        <button className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-300">{editingOffer?'Enregistrer les modifications':'Publier l’annonce'}</button><p className="text-center text-xs text-slate-500">{editingOffer?'Les modifications seront visibles immédiatement.':'Publication immédiate dans le catalogue.'}</p>
       </form></Modal>}
 
       {modal==='suggest' && <Modal title="Suggérer un service" onClose={()=>setModal(null)}><form onSubmit={submitSuggestion} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Le service sera vérifié avant d’être ajouté au catalogue. Une fois accepté, il pourra être utilisé dans les annonces et les alertes.</p><label><span className="label">Nom du service *</span><input required className={field} placeholder="" value={suggestion.name} onChange={e=>setSuggestion({...suggestion,name:e.target.value})}/></label><label><span className="label">Catégorie proposée *</span><select required className={field} value={suggestion.category} onChange={e=>setSuggestion({...suggestion,category:e.target.value})}>{categories.filter(c=>c!=='Toutes').map(c=><option key={c}>{c}</option>)}</select></label><label><span className="label">Site officiel (optionnel)</span><input className={field} placeholder="exemple.com ou toute autre indication" value={suggestion.website} onChange={e=>setSuggestion({...suggestion,website:e.target.value})}/></label><button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Envoyer la suggestion</button></form></Modal>}
