@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, Moon,
+  Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, LockKeyhole, Moon,
   Plus, Search, ShieldCheck, Sparkles, Sun, Wrench, X
 } from 'lucide-react'
 import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
