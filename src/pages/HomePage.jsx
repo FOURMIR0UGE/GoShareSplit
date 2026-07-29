@@ -289,9 +289,9 @@ export default function HomePage() {
                 <div className={view==='list'?'flex min-w-0 items-center gap-4':'flex flex-1 flex-col'}>
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={22}/></div>
                   <div className={view==='list'?'min-w-0':'mt-5'}>
-                    <p className="text-xs font-black uppercase tracking-[.14em] text-emerald-300 light:text-emerald-700">Alerte gratuite</p>
-                    <h3 className="mt-1 text-xl font-black">L’offre que tu cherches n’est pas disponible ?</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-400 light:text-slate-600">Choisis un service et reçois un e-mail dès qu’une annonce correspondante est publiée.</p>
+                    <p className="text-xs font-black uppercase tracking-[.14em] text-emerald-300 light:text-emerald-700">Notification automatique</p>
+                    <h3 className="mt-1 text-xl font-black">L’offre que tu cherches n’est pas encore disponible ?</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-400 light:text-slate-600">Choisis un service et reçois une alerte dès qu’une annonce correspondante est publiée.</p>
                   </div>
                 </div>
                 <button onClick={()=>setModal('alert')} className={`${view==='list'?'mt-5 shrink-0 sm:mt-0':'mt-6 w-full'} rounded-2xl bg-emerald-400 px-5 py-3.5 font-black text-slate-950 transition hover:bg-emerald-300`}>Créer une alerte gratuite</button>
