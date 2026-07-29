@@ -4,7 +4,7 @@ import {
   Plus, Search, ShieldCheck, Sparkles, Sun, Wrench, X
 } from 'lucide-react'
 import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
-import { createAlert, createOffer, createSuggestion, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
+import { createAlert, createOffer, createSuggestion, getPublicMeta, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
 import { detectPlatform, invalidLinkMessage } from '../lib/platform'
 import Modal from '../components/Modal'
 import OfferCard from '../components/OfferCard'
@@ -53,6 +53,8 @@ function matchingServices(query, limit=14, selectedCategory='Autre') {
 
 export default function HomePage() {
   const [offers, setOffers] = useState([])
+  const [publicMeta, setPublicMeta] = useState({ catalog:{ services:[] }, settings:{} })
+  const [priceWarning, setPriceWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Toutes')
@@ -83,7 +85,11 @@ export default function HomePage() {
   }, [theme])
 
   async function refresh() {
-    try { setOffers(await listOffers()) }
+    try {
+      const [nextOffers, meta] = await Promise.all([listOffers(), getPublicMeta()])
+      setOffers(nextOffers)
+      setPublicMeta(meta || { catalog:{ services:[] }, settings:{} })
+    }
     catch (e) { setNotice(`Erreur de chargement : ${e.message}`) }
     finally { setLoading(false) }
   }
@@ -138,20 +144,51 @@ export default function HomePage() {
     setModal('suggest')
   }
 
+  function cleanedPlan(value, serviceName) {
+    const trimmed = value.trim().slice(0, 70)
+    if (!serviceName.trim()) return trimmed
+    return trimmed.replace(new RegExp(`^${serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-–—:]?\\s*`, 'i'), '').trim()
+  }
+
+  function comparableOffers() {
+    return offers.filter(o => !o.hidden && !isExpired(o) && normalize(o.service) === normalize(form.service))
+  }
+
+  async function publishOffer() {
+    const detected = detectPlatform(form.link)
+    const now = new Date()
+    const payload = {
+      service:form.service,
+      service_id:form.serviceId,
+      plan:cleanedPlan(form.plan, form.service),
+      price:Number(form.price),
+      seats:Math.min(20, Math.max(1, Number(form.seats) || 1)),
+      link:form.link.trim(), platform:detected, category:form.category, icon:form.icon,
+      reports_count:0, published_at:now.toISOString(),
+      expires_at:new Date(now.getTime()+45*86400000).toISOString(), hidden:false,
+    }
+    await createOffer(payload)
+    await refresh()
+    setForm(initialForm)
+    setPriceWarning(null)
+    setModal(null)
+    setNotice('Votre annonce a été publiée avec succès.')
+  }
+
   async function submitOffer(e) {
     e.preventDefault(); setError('')
     const detected = detectPlatform(form.link)
     if (!detected) { setError(invalidLinkMessage); return }
     if (!form.serviceId) { setError('Sélectionne obligatoirement un service dans la liste proposée.'); return }
-    if (Number(form.price)<=0 || Number(form.seats)<0) { setError('Merci de remplir correctement tous les champs obligatoires.'); return }
+    if (Number(form.price)<=0 || Number(form.seats)<1) { setError('Merci de remplir correctement tous les champs obligatoires.'); return }
     if (offers.some(o => o.link === form.link.trim())) { setError('Cette annonce a déjà été publiée. Merci de ne pas soumettre le même lien plusieurs fois.'); return }
-    const now = new Date()
-    const payload = {
-      service:form.service, plan:form.plan.trim(), price:Number(form.price), seats:Number(form.seats), link:form.link.trim(),
-      platform:detected, category:form.category, icon:form.icon, reports_count:0,
-      published_at:now.toISOString(), expires_at:new Date(now.getTime()+45*86400000).toISOString(), hidden:false,
+    const sameService = comparableOffers()
+    const highest = sameService.length ? Math.max(...sameService.map(o => Number(o.price) || 0)) : 0
+    if (sameService.length >= 3 && Number(form.price) > highest) {
+      setPriceWarning({ highest, count:sameService.length })
+      return
     }
-    try { await createOffer(payload); await refresh(); setForm(initialForm); setModal(null); setNotice('Votre annonce a été publiée avec succès.') }
+    try { await publishOffer() }
     catch (e2) { setError(e2.message?.includes('duplicate') ? 'Cette annonce existe déjà.' : e2.message) }
   }
 
@@ -210,7 +247,7 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             <button onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="icon-btn" aria-label="Changer de thème">{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button>
             <button onClick={()=>openSuggestion('menu')} className="hidden items-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 text-sm font-semibold transition hover:border-slate-500 md:flex light:border-slate-300"><Wrench size={17}/>Suggérer un service</button>
-            <button onClick={()=>setModal('publish')} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Proposer une annonce</span><span className="sm:hidden">Publier</span></button>
+            <button onClick={()=>setModal('publish')} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Ajouter une annonce</span><span className="sm:hidden">Publier</span></button>
             <a href="#/admin" className="icon-btn" aria-label="Administration" title="Administration"><LockKeyhole size={18}/></a>
           </div>
         </div>
@@ -256,15 +293,16 @@ export default function HomePage() {
 
       <footer className="border-t border-white/5 bg-slate-950/35 px-4 py-8 text-center text-sm text-slate-500 light:border-slate-300 light:bg-slate-200/70"><p className="font-black text-slate-300 light:text-slate-700">GoShareSplit</p><p className="mx-auto mt-2 max-w-3xl">Site indépendant. Paiements uniquement sur Spliiit, Sharesub et GoSplit. Les annonces expirent automatiquement après 45 jours.</p></footer>
 
-      {modal==='publish' && <Modal title="Proposer une annonce" onClose={()=>setModal(null)} wide><form onSubmit={submitOffer} className="space-y-5">
+      {modal==='publish' && <Modal title="Ajouter une annonce" onClose={()=>setModal(null)} wide><form onSubmit={submitOffer} className="space-y-5">
         <div className="rounded-2xl border border-sky-400/20 bg-sky-400/8 p-4 text-sm text-sky-200 light:text-sky-800"><strong>Étape 1 :</strong> colle le lien de partage fourni par Spliiit, Sharesub ou GoSplit. La plateforme sera détectée automatiquement.</div>
         <label className="block"><span className="label">Lien de partage *</span><input required className={field} value={form.link} onChange={e=>updateLink(e.target.value)} placeholder="https://…"/></label>
         {form.platform && <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300 light:text-emerald-700"><CheckCircle2 size={16}/>Plateforme détectée : {form.platform}</div>}
-        <div className="grid gap-4 sm:grid-cols-3"><label><span className="label">Catégorie *</span><select required className={field} value={form.category} onChange={e=>updateOfferCategory(e.target.value)}>{categories.filter(c=>c!=='Toutes').map(c=><option key={c}>{c}</option>)}</select></label><label><span className="label">Service *</span><input required className={field} value={form.service} onChange={e=>updateOfferService(e.target.value)} placeholder="Commence à saisir un service…"/></label><label><span className="label">Offre / formule</span><input className={field} value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})} placeholder="Premium 4K, Famille…"/></label></div>
+        <div className="grid gap-4 sm:grid-cols-3"><label><span className="label">Catégorie *</span><select required className={field} value={form.category} onChange={e=>updateOfferCategory(e.target.value)}>{categories.filter(c=>c!=='Toutes').map(c=><option key={c}>{c}</option>)}</select></label><label><span className="label">Service *</span><input required className={field} value={form.service} onChange={e=>updateOfferService(e.target.value)} placeholder="Commence à saisir un service…"/></label><label><span className="label">Offre / formule</span><input className={field} value={form.plan} maxLength={70} onChange={e=>setForm({...form,plan:e.target.value.slice(0,70)})} placeholder="Premium 4K, Famille…"/></label></div>
         <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto pr-1">{offerServices.map(item=><button type="button" key={item.id} onClick={()=>chooseOfferService(item)} className={`${servicePill} ${form.serviceId===item.id?'border-emerald-400 bg-emerald-400/15 text-emerald-300 light:text-emerald-700':''}`}>{item.icon} {item.name}{form.serviceId===item.id && <X onClick={e=>{e.stopPropagation();clearOfferService()}} className="ml-1 inline text-red-400 hover:text-red-300" size={14}/>}</button>)}</div>
         {form.service.trim() && offerServices.length===0 && <button type="button" onClick={()=>openSuggestion('publish', form.service)} className="w-full rounded-2xl border border-dashed border-emerald-400/50 p-4 text-sm font-bold text-emerald-300 hover:bg-emerald-400/10 light:text-emerald-700">Service introuvable ? Suggérer « {form.service} »</button>}
         {form.serviceId && <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-300 light:text-emerald-700"><span>✓ {form.service} sélectionné · Catégorie : {form.category}</span><button type="button" onClick={clearOfferService} className="rounded-full p-1 text-red-400 hover:bg-red-400/10" title="Désélectionner le service"><X size={16}/></button></div>}
-        <div className="grid gap-4 sm:grid-cols-2"><label><span className="label">Prix mensuel (€) *</span><input required min="0.01" step="0.01" type="number" className={field} value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label><span className="label">Places disponibles *</span><input required min="0" type="number" className={field} value={form.seats} onChange={e=>setForm({...form,seats:e.target.value})}/></label></div>
+        {form.serviceId && (()=>{const service=(publicMeta.catalog?.services||[]).find(s=>s.id===form.serviceId || normalize(s.name)===normalize(form.service));const count=Number(service?.active_alerts||0);return count>0?<div className="rounded-xl border border-orange-300/20 bg-orange-400/10 px-3 py-2 text-sm font-semibold text-orange-300 light:text-orange-700">🔥 {count} {count===1?'personne attend actuellement':'personnes attendent actuellement'} une offre pour ce service.</div>:null})()}
+        <div className="grid gap-4 sm:grid-cols-2"><label><span className="label">Prix mensuel (€) *</span><input required min="0.01" step="0.01" type="number" className={field} value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label><span className="label">Places disponibles *</span><input required min="1" max="20" type="number" className={field} value={form.seats} onChange={e=>setForm({...form,seats:e.target.value})}/></label></div>
         {error && <p className="rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-400">{error}</p>}
         <button className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Publier l’annonce</button><p className="text-center text-xs text-slate-500">Publication immédiate dans le catalogue.</p>
       </form></Modal>}
@@ -273,6 +311,7 @@ export default function HomePage() {
 
       {modal==='alert' && <Modal title="Créer une alerte" onClose={()=>setModal(null)}><form onSubmit={submitAlert} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Choisis précisément un service du catalogue. Tu seras ainsi prévenu lorsqu’une annonce pour ce même service sera publiée.</p><label className="block"><span className="label">Adresse e-mail *</span><input required type="email" className={field} value={alert.email} onChange={e=>setAlert({...alert,email:e.target.value})} placeholder="toi@email.fr"/></label><label className="block"><span className="label">Service recherché *</span><input required className={field} value={alert.service} onChange={e=>updateAlertService(e.target.value)} placeholder="Commence à saisir Apple, Netflix…"/></label><div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">{alertServices.map(item=><button type="button" key={item.id} onClick={()=>chooseAlertService(item)} className={`${servicePill} ${alert.serviceId===item.id?'border-emerald-400 bg-emerald-400/15 text-emerald-300 light:text-emerald-700':''}`}>{item.icon} {item.name}</button>)}</div>{alert.service.trim() && alertServices.length===0 && <button type="button" onClick={()=>openSuggestion('alert', alert.service)} className="w-full rounded-2xl border border-dashed border-emerald-400/50 p-4 text-sm font-bold text-emerald-300 hover:bg-emerald-400/10 light:text-emerald-700">Aucun service trouvé. Suggérer « {alert.service} »</button>}{alert.serviceId && <p className="text-sm font-semibold text-emerald-300 light:text-emerald-700">✓ Alerte liée exactement à {alert.service}</p>}{alertError && <p className="rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-400">{alertError}</p>}<button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Activer l’alerte</button><button type="button" onClick={()=>{setManageEmail(alert.email);setManageSent(false);setModal('manage-alerts')}} className="w-full text-sm font-bold text-emerald-300 underline-offset-4 hover:underline light:text-emerald-700">Déjà inscrit ? Gérer mes alertes</button></form></Modal>}
       {modal==='manage-alerts' && <Modal title="Gérer mes alertes" onClose={()=>setModal(null)}>{manageSent ? <div className="space-y-4"><p className="rounded-2xl bg-emerald-400/10 p-4 text-sm font-semibold text-emerald-300 light:text-emerald-700">Si cette adresse possède des alertes, un lien sécurisé vient d’être envoyé. Pense à vérifier les courriers indésirables.</p><button onClick={()=>setModal(null)} className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Fermer</button></div> : <form onSubmit={submitManageAlerts} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Saisis l’adresse utilisée pour tes alertes. Tu recevras un lien personnel, sans mot de passe.</p><label className="block"><span className="label">Adresse e-mail *</span><input required type="email" className={field} value={manageEmail} onChange={e=>setManageEmail(e.target.value)} placeholder="toi@email.fr"/></label><button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Recevoir mon lien sécurisé</button></form>}</Modal>}
+      {priceWarning && <Modal title="Prix supérieur aux autres offres" onClose={()=>setPriceWarning(null)}><div className="space-y-4"><p className="text-sm leading-relaxed text-slate-300 light:text-slate-700">Votre prix est supérieur aux autres offres actuellement disponibles pour ce service. Les utilisateurs consultent généralement en priorité les annonces les moins chères. En conservant ce tarif, votre annonce risque d’être moins attractive.</p><p className="rounded-xl bg-slate-800/70 p-3 text-sm light:bg-slate-100">Prix le plus élevé actuellement : <strong>{priceWarning.highest.toFixed(2).replace('.', ',')} €</strong></p><div className="grid gap-2 sm:grid-cols-2"><button type="button" onClick={()=>setPriceWarning(null)} className="rounded-xl border border-slate-600 px-4 py-3 font-bold light:border-slate-300">Modifier mon prix</button><button type="button" onClick={async()=>{try{await publishOffer()}catch(e){setPriceWarning(null);setError(e.message)}}} className="rounded-xl bg-emerald-400 px-4 py-3 font-black text-slate-950">Publier quand même</button></div></div></Modal>}
       {reporting && <Modal title="Signaler une annonce" onClose={()=>setReporting(null)}><div className="space-y-3">{[['no_seats','Plus de places'],['invalid_link','Lien invalide'],['wrong_info','Informations erronées']].map(([value,label])=><label key={value} className="flex items-center gap-3 rounded-2xl border border-slate-700 p-4 light:border-slate-300"><input type="radio" name="report-reason" checked={reportReason===value} onChange={()=>setReportReason(value)}/><span className="font-bold">{label}</span></label>)}<button onClick={submitReport} className="w-full rounded-2xl bg-red-500 px-4 py-3.5 font-black text-white">Envoyer le signalement</button></div></Modal>}
 
     </div>
