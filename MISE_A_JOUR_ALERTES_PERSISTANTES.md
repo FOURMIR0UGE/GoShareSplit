@@ -1,22 +1,33 @@
-# Mise à jour : alertes gérables et données persistantes
-
-## Ce qui change
-
-- Les annonces, alertes, suggestions et signalements sont stockés hors du dossier redéployé par Hostinger.
-- Une migration automatique copie les anciens fichiers de `public/api/data/` lors du premier lancement, uniquement si le nouveau stockage est encore vide.
-- Chaque adresse e-mail possède un jeton de gestion sécurisé.
-- Le lien **Gérer mes alertes** est présent dans les e-mails et dans la fenêtre de création d’une alerte.
-- L’utilisateur peut désactiver, réactiver ou supprimer chaque alerte.
-- Aucune validation préalable de l’adresse e-mail n’est demandée.
-
-## Emplacement des données
-
-Par défaut, PHP crée le dossier `gosharesplit-data` à côté de la racine publique du site. Il n’est donc pas remplacé lors d’un nouveau déploiement GitHub.
-
-Il est aussi possible de définir manuellement la variable d’environnement `GSS_DATA_DIR` avec un chemin absolu inscriptible par PHP.
-
-## Important pour le premier déploiement
-
-Ne supprime pas manuellement l’ancien dossier `public/api/data/` avant d’avoir ouvert le site une première fois après cette mise à jour. La première requête vers l’API effectuera la migration automatique des données existantes.
-
-Le fichier privé `public/api/smtp-config.php` doit rester présent directement sur Hostinger et ne doit pas être envoyé sur GitHub.
+{
+  "name": "gosharesplit",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.5"
+  }
+}
