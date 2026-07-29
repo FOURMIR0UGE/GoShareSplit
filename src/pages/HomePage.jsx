@@ -3,7 +3,7 @@ import {
   Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, LockKeyhole, Moon,
   Plus, Search, ShieldCheck, Sun, Wrench, X
 } from 'lucide-react'
-import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
+import { categories, categoryIcons, serviceCatalog } from '../data/catalog'
 import { createAlert, createOffer, createSuggestion, deleteOffer, getAdminSession, getPublicMeta, listOffers, reportOffer, requestAlertManagement, updateOffer } from '../lib/store'
 import { detectPlatform, invalidLinkMessage } from '../lib/platform'
 import Modal from '../components/Modal'
@@ -22,32 +22,20 @@ function shuffleStable(items) {
   sessionStorage.setItem(key, JSON.stringify(order))
   return [...items].sort((a,b) => order[a.id] - order[b.id])
 }
-function randomServices(limit=14) {
-  const key = 'gosharesplit-random-services'
-  const saved = sessionStorage.getItem(key)
-  if (saved) {
-    const ids = JSON.parse(saved)
-    return ids.map(id => serviceCatalog.find(item => item.id === id)).filter(Boolean).slice(0, limit)
-  }
-  const items = [...serviceCatalog].sort(() => Math.random() - 0.5).slice(0, limit)
-  sessionStorage.setItem(key, JSON.stringify(items.map(item => item.id)))
-  return items
-}
-function matchingServices(query, limit=14, selectedCategory='Autre') {
+function matchingServices(catalog, query, limit=14, selectedCategory='Autre') {
   const q = normalize(query).trim()
-  const pool = selectedCategory === 'Autre'
-    ? serviceCatalog
-    : serviceCatalog.filter(item => item.category === selectedCategory)
-  if (!q) {
-    if (selectedCategory === 'Autre') return randomServices(limit)
-    return pool.slice(0, limit)
-  }
+  const pool = (selectedCategory === 'Autre'
+    ? catalog
+    : catalog.filter(item => item.category === selectedCategory))
+    .slice()
+    .sort((a,b) => a.name.localeCompare(b.name, 'fr', { sensitivity:'base' }))
+  if (!q) return pool.slice(0, limit)
   return pool
     .filter(item => normalize(`${item.name} ${item.category}`).includes(q))
     .sort((a,b) => {
       const aStart = normalize(a.name).startsWith(q) ? 1 : 0
       const bStart = normalize(b.name).startsWith(q) ? 1 : 0
-      return bStart - aStart || a.name.localeCompare(b.name, 'fr')
+      return bStart - aStart || a.name.localeCompare(b.name, 'fr', { sensitivity:'base' })
     }).slice(0, limit)
 }
 
@@ -60,7 +48,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Toutes')
-  const [sort, setSort] = useState('featured')
+  const [sort, setSort] = useState('recommended')
   const [view, setView] = useState('grid')
   const [theme, setTheme] = useState(() => localStorage.getItem('gosharesplit-theme') || 'dark')
   const [modal, setModal] = useState(null)
@@ -102,10 +90,31 @@ export default function HomePage() {
     finally { setLoading(false) }
   }
   useEffect(() => { refresh(); getAdminSession().then(setAdminSession).catch(()=>{}) }, [])
+  useEffect(() => {
+    if (!offers.length || !(publicMeta.catalog?.services || []).length) return
+    const requestedId = sessionStorage.getItem('gosharesplit-edit-offer-id')
+    if (!requestedId || !adminSession?.authenticated) return
+    const offer = offers.find(item=>String(item.id)===String(requestedId))
+    sessionStorage.removeItem('gosharesplit-edit-offer-id')
+    if (offer) adminEditOffer(offer)
+  }, [offers, publicMeta.catalog?.services, adminSession?.authenticated])
   useEffect(() => { if (!notice) return; const t=setTimeout(()=>setNotice(''),3500); return()=>clearTimeout(t) }, [notice])
 
-  const offerServices = useMemo(() => matchingServices(form.service, 14, form.category), [form.service, form.category])
-  const alertServices = useMemo(() => matchingServices(alert.service, 10), [alert.service])
+  const catalogServices = useMemo(() => {
+    const live = publicMeta.catalog?.services || []
+    return (live.length ? live : serviceCatalog).slice().sort((a,b)=>a.name.localeCompare(b.name,'fr',{sensitivity:'base'}))
+  }, [publicMeta.catalog?.services])
+  const liveCategories = useMemo(() => {
+    const live = publicMeta.catalog?.categories || []
+    return live.length ? live.map(c=>c.name) : categories
+  }, [publicMeta.catalog?.categories])
+  const liveCategoryIcons = useMemo(() => {
+    const map = {...categoryIcons}
+    for (const category of publicMeta.catalog?.categories || []) map[category.name] = category.icon || '📦'
+    return map
+  }, [publicMeta.catalog?.categories])
+  const offerServices = useMemo(() => matchingServices(catalogServices, form.service, 50, form.category), [catalogServices, form.service, form.category])
+  const alertServices = useMemo(() => matchingServices(catalogServices, alert.service, 50), [catalogServices, alert.service])
 
   const visibleOffers = useMemo(() => {
     const q = normalize(search)
@@ -113,38 +122,48 @@ export default function HomePage() {
       && (category==='Toutes'||o.category===category)
       && (!q || normalize(`${o.service} ${o.plan} ${o.category} ${o.platform}`).includes(q)))
 
+    if (sort === 'recommended') {
+      const favoriteIds = new Set((publicMeta.catalog?.services || []).filter(service=>service.favorite).map(service=>String(service.id)))
+      const favoriteNames = new Set((publicMeta.catalog?.services || []).filter(service=>service.favorite).map(service=>normalize(service.name)))
+      const byNewest = [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
+      const newest = byNewest.slice(0, 2)
+      const newestIds = new Set(newest.map(offer=>offer.id))
+      const remaining = filtered.filter(offer=>!newestIds.has(offer.id))
+      const serviceKey = offer => String(offer.service_id||'').trim() || normalize(offer.service)
+      const alphabeticalWithCheapestFirst = (a,b)=>(a.service||'').localeCompare(b.service||'','fr',{sensitivity:'base'})||Number(a.price||0)-Number(b.price||0)||(a.plan||'').localeCompare(b.plan||'','fr',{sensitivity:'base'})
+
+      // Pour chaque service favori, une seule annonce remonte dans la zone favorite : la moins chère.
+      // Les autres annonces du même service restent ensuite dans la partie alphabétique.
+      const favoriteGroups = new Map()
+      for (const offer of remaining) {
+        const isFavorite = favoriteIds.has(String(offer.service_id||'')) || favoriteNames.has(normalize(offer.service))
+        if (!isFavorite) continue
+        const key = serviceKey(offer)
+        const current = favoriteGroups.get(key)
+        if (!current || Number(offer.price||0) < Number(current.price||0) || (Number(offer.price||0) === Number(current.price||0) && new Date(offer.published_at||0) > new Date(current.published_at||0))) favoriteGroups.set(key, offer)
+      }
+      const favorites = [...favoriteGroups.values()].sort(alphabeticalWithCheapestFirst)
+      const promotedFavoriteIds = new Set(favorites.map(offer=>offer.id))
+      const others = remaining.filter(offer=>!promotedFavoriteIds.has(offer.id)).sort(alphabeticalWithCheapestFirst)
+      return [...newest, ...favorites, ...others]
+    }
     if (sort === 'newest') return [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
     if (sort === 'oldest') return [...filtered].sort((a,b)=>new Date(a.published_at)-new Date(b.published_at))
     if (sort === 'price-asc') return [...filtered].sort((a,b)=>Number(a.price)-Number(b.price))
     if (sort === 'price-desc') return [...filtered].sort((a,b)=>Number(b.price)-Number(a.price))
     if (sort === 'seats') return [...filtered].sort((a,b)=>Number(b.seats)-Number(a.seats))
 
-    // Recommandé : 2 plus récentes, puis services populaires, puis aléatoire,
-    // avec les annonces les plus signalées repoussées en bas.
-    const byDate = [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
-    const recent = byDate.slice(0,2)
-    const recentIds = new Set(recent.map(o=>o.id))
-    const remaining = filtered.filter(o=>!recentIds.has(o.id))
-    const clean = remaining.filter(o=>Number(o.reports_count||0)===0)
-    const reported = remaining.filter(o=>Number(o.reports_count||0)>0)
-    const popularity = new Map(featuredServiceIds.map((id,index)=>[id, featuredServiceIds.length-index]))
-    const popular = clean.filter(o=>popularity.has(o.service_id || normalize(o.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')))
-      .sort((a,b)=>{
-        const aId = a.service_id || normalize(a.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')
-        const bId = b.service_id || normalize(b.service).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')
-        return (popularity.get(bId)||0)-(popularity.get(aId)||0)
-      })
-    const popularIds = new Set(popular.map(o=>o.id))
-    const random = shuffleStable(clean.filter(o=>!popularIds.has(o.id)))
-    const reportedLast = [...reported].sort((a,b)=>Number(a.reports_count||0)-Number(b.reports_count||0))
-    return [...recent, ...popular, ...random, ...reportedLast]
-  }, [offers, search, category, sort])
+    return [...filtered].sort((a,b) =>
+      (a.service || '').localeCompare(b.service || '', 'fr', { sensitivity:'base' }) ||
+      (a.plan || '').localeCompare(b.plan || '', 'fr', { sensitivity:'base' })
+    )
+  }, [offers, search, category, sort, publicMeta.catalog?.services])
 
   function updateLink(link) { setForm(f => ({...f, link, platform:detectPlatform(link)})); setError('') }
-  function updateOfferService(value) { setForm(f => ({...f, service:value, serviceId:'', icon:categoryIcons[f.category] || '📦'})); setError('') }
+  function updateOfferService(value) { setForm(f => ({...f, service:value, serviceId:'', icon:liveCategoryIcons[f.category] || '📦'})); setError('') }
   function chooseOfferService(item) { setForm(f => ({...f, service:item.name, serviceId:item.id, category:item.category, icon:item.icon})); setError('') }
-  function clearOfferService() { setForm(f => ({...f, service:'', serviceId:'', icon:categoryIcons[f.category] || '📦'})); setError('') }
-  function updateOfferCategory(value) { setForm(f => ({...f, category:value, service:'', serviceId:'', icon:categoryIcons[value] || '📦'})); setError('') }
+  function clearOfferService() { setForm(f => ({...f, service:'', serviceId:'', icon:liveCategoryIcons[f.category] || '📦'})); setError('') }
+  function updateOfferCategory(value) { setForm(f => ({...f, category:value, service:'', serviceId:'', icon:liveCategoryIcons[value] || '📦'})); setError('') }
   function updateAlertService(value) { setAlert(a => ({...a, service:value, serviceId:''})); setAlertError('') }
   function chooseAlertService(item) { setAlert(a => ({...a, service:item.name, serviceId:item.id})); setAlertError('') }
   function openSuggestion(source, name='') {
@@ -325,7 +344,7 @@ export default function HomePage() {
             <div className="mt-3 grid gap-3 border-t border-white/5 pt-4 lg:grid-cols-[1fr_auto] lg:items-end light:border-slate-300">
               <div><h2 className="text-2xl font-black">Annonces disponibles</h2><p className="text-sm text-slate-500">{visibleOffers.length} résultat{visibleOffers.length>1?'s':''}{search ? ` pour « ${search} »` : ''}</p></div>
               <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_auto]">
-                <div className="min-w-0"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select-native w-full" aria-label="Trier les annonces"><option value="featured">Recommandé</option><option value="newest">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="price-asc">Prix croissant</option><option value="price-desc">Prix décroissant</option><option value="seats">Avec le plus de places</option></select></div>
+                <div className="min-w-0"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select-native w-full" aria-label="Trier les annonces"><option value="recommended">Recommandé</option><option value="alphabetical">Ordre alphabétique</option><option value="newest">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="price-asc">Prix croissant</option><option value="price-desc">Prix décroissant</option><option value="seats">Avec le plus de places</option></select></div>
                 <div className="flex justify-self-start rounded-xl border border-slate-700 p-1 sm:justify-self-end light:border-slate-300"><button onClick={()=>setView('grid')} className={`rounded-lg p-2 ${view==='grid'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue grille"><LayoutGrid size={17}/></button><button onClick={()=>setView('list')} className={`rounded-lg p-2 ${view==='list'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue liste"><List size={17}/></button></div>
               </div>
             </div>
