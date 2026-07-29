@@ -283,10 +283,26 @@ export default function HomePage() {
           </div>
 
           {loading ? <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i=><div key={i} className="h-72 animate-pulse rounded-3xl bg-slate-800/60 light:bg-slate-300"/>)}</div>
-          : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>{visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={isNew} list={view==='list'}/>})}</div>
-          : <div className="rounded-3xl border border-dashed border-slate-700 py-20 text-center light:border-slate-400"><Search className="mx-auto mb-4 text-slate-500" size={38}/><h3 className="text-xl font-black">Aucune annonce trouvée</h3><p className="mt-2 text-slate-500">Modifie tes filtres ou crée une alerte.</p><button onClick={()=>setModal('alert')} className="mt-5 rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950">Créer une alerte</button></div>}
-
-          <section className="relative mt-14 overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-gradient-to-br from-emerald-400/15 via-slate-900/80 to-sky-400/10 p-6 sm:p-9 light:from-emerald-100 light:via-white light:to-sky-100"><div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div className="max-w-2xl"><div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={21}/></div><h2 className="text-2xl font-black sm:text-3xl">L’annonce que tu cherches n’est pas encore disponible ?</h2><p className="mt-2 text-slate-400 light:text-slate-600">Choisis un service du catalogue et sois informé dès qu’une annonce correspondante est publiée.</p></div><button onClick={()=>setModal('alert')} className="shrink-0 rounded-2xl bg-emerald-400 px-6 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Créer une alerte gratuite</button></div></section>
+          : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>
+              {visibleOffers.map((offer)=>{const publishedAt=new Date(offer.published_at || offer.created_at).getTime();const badgeHours=Number(publicMeta.settings?.new_badge_hours || 24);const isNew=Number.isFinite(publishedAt) && Date.now()-publishedAt < badgeHours*60*60*1000;return <OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={isNew} list={view==='list'}/>})}
+              <article className={`overflow-hidden rounded-3xl border border-emerald-300/20 bg-gradient-to-br from-emerald-400/15 via-slate-900/85 to-sky-400/10 shadow-xl light:from-emerald-100 light:via-white light:to-sky-100 ${view==='list'?'p-6 sm:flex sm:items-center sm:justify-between sm:gap-6':'flex min-h-[300px] flex-col p-5'}`}>
+                <div className={view==='list'?'flex min-w-0 items-center gap-4':'flex flex-1 flex-col'}>
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={22}/></div>
+                  <div className={view==='list'?'min-w-0':'mt-5'}>
+                    <p className="text-xs font-black uppercase tracking-[.14em] text-emerald-300 light:text-emerald-700">Alerte gratuite</p>
+                    <h3 className="mt-1 text-xl font-black">L’offre que tu cherches n’est pas disponible ?</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-400 light:text-slate-600">Choisis un service et reçois un e-mail dès qu’une annonce correspondante est publiée.</p>
+                  </div>
+                </div>
+                <button onClick={()=>setModal('alert')} className={`${view==='list'?'mt-5 shrink-0 sm:mt-0':'mt-6 w-full'} rounded-2xl bg-emerald-400 px-5 py-3.5 font-black text-slate-950 transition hover:bg-emerald-300`}>Créer une alerte gratuite</button>
+              </article>
+            </div>
+          : <div className="relative overflow-hidden rounded-[2rem] border border-emerald-300/20 bg-gradient-to-br from-emerald-400/15 via-slate-900/85 to-sky-400/10 px-6 py-16 text-center shadow-xl sm:px-10 sm:py-24 light:from-emerald-100 light:via-white light:to-sky-100">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={30}/></div>
+              <h3 className="mx-auto mt-6 max-w-2xl text-3xl font-black sm:text-4xl">L’annonce que tu cherches n’est pas encore disponible ?</h3>
+              <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">Aucune annonce ne correspond actuellement à ta recherche. Crée une alerte et sois informé dès qu’une offre pour ce service est publiée.</p>
+              <button onClick={()=>setModal('alert')} className="mt-7 rounded-2xl bg-emerald-400 px-7 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Créer une alerte gratuite</button>
+            </div>}
         </section>
       </main>
 
