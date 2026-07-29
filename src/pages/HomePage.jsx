@@ -1,56 +1,264 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Bell, CheckCircle2, LayoutGrid, List, Moon, Plus, Search, Sun, X } from 'lucide-react'
-import { createAlert, createOffer, createSuggestion, getPublicMeta, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Bell, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, Moon,
+  Plus, Search, ShieldCheck, Sparkles, Sun, Wrench, X
+} from 'lucide-react'
+import { categories, categoryIcons, featuredServiceIds, serviceCatalog } from '../data/catalog'
+import { createAlert, createOffer, createSuggestion, listOffers, reportOffer, requestAlertManagement } from '../lib/store'
 import { detectPlatform, invalidLinkMessage } from '../lib/platform'
-import { translations } from '../i18n'
 import Modal from '../components/Modal'
 import OfferCard from '../components/OfferCard'
 
-const initialForm={link:'',service:'',serviceId:'',plan:'',price:'1.00',seats:1,category:'Autre',platform:'',icon:'📦'}
-const initialAlert={email:'',service:'',serviceId:''}
-const norm=v=>(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
-const shuffle=a=>[...a].sort(()=>Math.random()-.5)
+const initialForm = { link:'', service:'', serviceId:'', plan:'', price:'1.00', seats:1, category:'Autre', platform:'', icon:'📦' }
+const initialAlert = { email:'', service:'', serviceId:'' }
+const initialSuggestion = { name:'', category:'Autre', website:'', source:'menu' }
+const platforms = ['Toutes', 'Spliiit', 'Sharesub', 'GoSplit']
 
-export default function HomePage(){
- const [offers,setOffers]=useState([]),[meta,setMeta]=useState({catalog:{categories:[],services:[]},settings:{}}),[loading,setLoading]=useState(true)
- const [search,setSearch]=useState(''),[category,setCategory]=useState('Toutes'),[sort,setSort]=useState('recommended'),[view,setView]=useState('grid')
- const [theme,setTheme]=useState(()=>localStorage.getItem('gosharesplit-theme')||'dark'),[lang,setLang]=useState(()=>localStorage.getItem('gosharesplit-lang')||'fr')
- const [modal,setModal]=useState(null),[notice,setNotice]=useState(''),[error,setError]=useState(''),[form,setForm]=useState(initialForm),[alert,setAlert]=useState(initialAlert)
- const [suggestion,setSuggestion]=useState({name:'',category:'Autre',website:'',source:'menu'}),[reporting,setReporting]=useState(null),[reportReason,setReportReason]=useState('no_seats')
- const [manageEmail,setManageEmail]=useState(''),[manageSent,setManageSent]=useState(false),[serviceSeed,setServiceSeed]=useState(0)
- const t=translations[lang]
- useEffect(()=>{document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.classList.toggle('light',theme==='light');localStorage.setItem('gosharesplit-theme',theme)},[theme])
- useEffect(()=>localStorage.setItem('gosharesplit-lang',lang),[lang])
- async function refresh(){try{const [o,m]=await Promise.all([listOffers(),getPublicMeta()]);setOffers(o);setMeta(m)}finally{setLoading(false)}}
- useEffect(()=>{refresh()},[])
- useEffect(()=>{if(!notice)return;const id=setTimeout(()=>setNotice(''),3500);return()=>clearTimeout(id)},[notice])
- const categories=useMemo(()=>['Toutes',...meta.catalog.categories.map(c=>c.name)],[meta])
- const categoryMap=useMemo(()=>Object.fromEntries(meta.catalog.categories.map(c=>[c.id,c])),[meta])
- const services=useMemo(()=>meta.catalog.services.map(s=>({...s,category:categoryMap[s.category_id]?.name||'Autre',icon:s.icon||categoryMap[s.category_id]?.icon||'📦'})),[meta,categoryMap])
- function openModal(name){setModal(name);setError('');setServiceSeed(v=>v+1);if(name==='offer')setForm(initialForm);if(name==='alert')setAlert(initialAlert)}
- function suggestionsFor(query,selectedCategory,limit=14){const q=norm(query).trim();let pool=selectedCategory&&selectedCategory!=='Autre'?services.filter(s=>s.category===selectedCategory):services;if(q)return pool.filter(s=>norm(`${s.name} ${s.category}`).includes(q)).slice(0,limit);const demanded=[...pool].filter(s=>s.active_alerts>0).sort((a,b)=>b.active_alerts-a.active_alerts).slice(0,5);const random=shuffle(pool.filter(s=>!demanded.some(d=>d.id===s.id))).slice(0,limit-demanded.length);return [...demanded,...random]}
- const offerServices=useMemo(()=>suggestionsFor(form.service,form.category,14),[form.service,form.category,services,serviceSeed])
- const alertServices=useMemo(()=>suggestionsFor(alert.service,'Autre',12),[alert.service,services,serviceSeed])
- const popularity=useMemo(()=>Object.fromEntries(services.map(s=>[norm(s.name),Number(s.popularity||0)])),[services])
- const visibleOffers=useMemo(()=>{const q=norm(search);const f=offers.filter(o=>(category==='Toutes'||o.category===category)&&(!q||norm(`${o.service} ${o.plan} ${o.category}`).includes(q)));if(sort==='newest')return [...f].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at));if(sort==='oldest')return [...f].sort((a,b)=>new Date(a.published_at)-new Date(b.published_at));if(sort==='priceAsc')return [...f].sort((a,b)=>a.price-b.price);if(sort==='priceDesc')return [...f].sort((a,b)=>b.price-a.price);if(sort==='seats')return [...f].sort((a,b)=>b.seats-a.seats);const recent=[...f].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at)).slice(0,Number(meta.settings.recent_featured_count||2));const rest=f.filter(x=>!recent.some(r=>r.id===x.id));rest.sort((a,b)=>{const ar=Number(a.reports_count||0),br=Number(b.reports_count||0);if(ar!==br)return ar-br;const ap=popularity[norm(a.service)]||0,bp=popularity[norm(b.service)]||0;if(ap!==bp)return bp-ap;return Math.random()-.5});return [...recent,...rest]},[offers,category,search,sort,popularity,meta])
- function priceLevel(offer){const same=offers.filter(o=>norm(o.service)===norm(offer.service));if(same.length<Number(meta.settings.price_compare_min||4))return'low';const prices=same.map(o=>Number(o.price)).sort((a,b)=>a-b),p=Number(offer.price),low=prices[Math.floor((prices.length-1)/3)],high=prices[Math.ceil((prices.length-1)*2/3)];return p<=low?'low':p>=high?'high':'mid'}
- async function submitOffer(e,force=false){e?.preventDefault();setError('');const detected=detectPlatform(form.link);if(!detected){setError(invalidLinkMessage);return}if(!form.serviceId){setError('Sélectionne un service dans la liste.');return}const same=offers.filter(o=>norm(o.service)===norm(form.service));if(!force&&same.length>=3&&Number(form.price)>Math.max(...same.map(o=>Number(o.price)))){if(!window.confirm('Votre prix est plus élevé que toutes les autres annonces actives pour ce service. Les utilisateurs risquent de privilégier les offres moins chères. Publier quand même ?'))return}await createOffer({...form,service_id:form.serviceId,platform:detected,price:Number(form.price),seats:Number(form.seats)});await refresh();setModal(null);setNotice('Votre annonce a été publiée avec succès.')}
- async function sendReport(){try{await reportOffer(reporting.id,reportReason);await refresh();setReporting(null);setNotice('Signalement enregistré.')}catch(e){setNotice(e.code==='already_reported'?'Vous avez déjà signalé cette annonce.':'Impossible d’enregistrer le signalement.')}}
- const field='w-full rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 outline-none focus:border-emerald-400 light:border-slate-300 light:bg-white'
- return <div className="min-h-screen bg-[#06101d] text-slate-100 light:bg-[#e8edf3] light:text-slate-900">
-  {notice&&<div className="fixed left-1/2 top-4 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-emerald-400 px-5 py-3 font-black text-slate-950"><CheckCircle2 size={18}/>{notice}</div>}
-  <header className="sticky top-0 z-40 border-b border-white/5 bg-[#06101d]/90 backdrop-blur-xl light:bg-white/90"><div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-4"><div className="text-xl font-black">GoShareSplit</div><div className="relative ml-auto hidden w-full max-w-md md:block"><Search className="absolute left-3 top-3 text-slate-500" size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.search} className="w-full rounded-xl border border-slate-700 bg-slate-900 py-2.5 pl-10 pr-3 light:border-slate-300 light:bg-white"/></div><select value={lang} onChange={e=>setLang(e.target.value)} className="control-select"><option value="fr">FR</option><option value="en">EN</option></select><button className="icon-btn" onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button></div></header>
-  <main className="mx-auto max-w-7xl px-4 py-10"><section className="mb-8 text-center"><h1 className="text-balance text-4xl font-black md:text-6xl">{meta.settings.site_texts?.[`hero_${lang}`]||'Trouvez facilement une place dans un abonnement partagé'}</h1><p className="mx-auto mt-4 max-w-3xl text-slate-400">{meta.settings.site_texts?.[`subtitle_${lang}`]}</p><div className="mt-6 flex flex-wrap justify-center gap-3"><button onClick={()=>openModal('offer')} className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950"><Plus className="mr-2 inline" size={18}/>{t.add}</button><button onClick={()=>openModal('alert')} className="rounded-xl border border-slate-700 px-5 py-3 font-black"><Bell className="mr-2 inline" size={18}/>{t.alert}</button></div></section>
-   <div className="mb-5 md:hidden"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.search} className={field}/></div>
-   <div className="mb-6 flex flex-wrap gap-2">{categories.map(c=><button key={c} onClick={()=>setCategory(c)} className={`rounded-full px-4 py-2 text-sm font-bold ${category===c?'bg-emerald-400 text-slate-950':'border border-slate-700'}`}>{c}</button>)}</div>
-   <div className="mb-6 flex flex-wrap items-center gap-3"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select"><option value="recommended">{t.recommended}</option><option value="newest">{t.newest}</option><option value="oldest">{t.oldest}</option><option value="priceAsc">{t.priceAsc}</option><option value="priceDesc">{t.priceDesc}</option><option value="seats">{t.seats}</option></select><div className="ml-auto flex gap-2"><button className="icon-btn" onClick={()=>setView('grid')}><LayoutGrid size={18}/></button><button className="icon-btn" onClick={()=>setView('list')}><List size={18}/></button></div></div>
-   {loading?<p>Chargement…</p>:<div className={view==='grid'?'grid gap-5 md:grid-cols-2 xl:grid-cols-3':'grid gap-4'}>{visibleOffers.map(o=><OfferCard key={o.id} offer={o} onReport={setReporting} list={view==='list'} priceLevel={priceLevel(o)} isNew={Date.now()-new Date(o.published_at)<Number(meta.settings.new_badge_hours||24)*3600000} t={t}/>)}</div>}
-  </main>
-  <footer className="border-t border-white/5 py-8 text-center text-sm text-slate-500"><button onClick={()=>openModal('suggest')} className="font-bold hover:text-emerald-400">Suggérer un service</button></footer>
-  {modal==='offer'&&<Modal title={t.add} onClose={()=>setModal(null)}><form onSubmit={submitOffer} className="space-y-4"><label className="label">Lien de partage *</label><input required className={field} value={form.link} onChange={e=>setForm({...form,link:e.target.value,platform:detectPlatform(e.target.value)})}/><label className="label">Catégorie</label><select className={field} value={form.category} onChange={e=>setForm({...form,category:e.target.value,service:'',serviceId:''})}>{meta.catalog.categories.map(c=><option key={c.id}>{c.name}</option>)}</select><label className="label">Service *</label><div className="relative"><input className={field} value={form.service} onChange={e=>setForm({...form,service:e.target.value,serviceId:''})}/>{form.service&&<button type="button" onClick={()=>setForm({...form,service:'',serviceId:''})} className="absolute right-3 top-3 text-red-400"><X size={20}/></button>}</div><div className="flex flex-wrap gap-2">{offerServices.map(s=><button type="button" key={s.id} onClick={()=>setForm({...form,service:s.name,serviceId:s.id,category:s.category,icon:s.icon})} className="rounded-full border border-slate-700 px-3 py-2 text-xs font-bold">{s.name}{s.active_alerts>0&&<span className="ml-1 text-orange-400">🔥{s.active_alerts}</span>}</button>)}</div>{form.serviceId&&<p className="text-sm text-orange-300">🔥 {services.find(s=>s.id===form.serviceId)?.active_alerts||0} alerte(s) active(s) pour ce service</p>}<label className="label">Offre / formule</label><input maxLength={70} className={field} value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}/><div className="grid grid-cols-2 gap-3"><div><label className="label">Prix / mois (€)</label><input type="number" min="0.01" step="0.01" className={field} value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></div><div><label className="label">Places</label><input type="number" min="1" max={meta.settings.max_seats||20} className={field} value={form.seats} onChange={e=>setForm({...form,seats:e.target.value})}/></div></div>{error&&<p className="text-sm font-bold text-red-400">{error}</p>}<button className="w-full rounded-xl bg-emerald-400 py-3 font-black text-slate-950">Publier l’annonce</button></form></Modal>}
-  {modal==='alert'&&<Modal title={t.alert} onClose={()=>setModal(null)}><form onSubmit={async e=>{e.preventDefault();await createAlert({email:alert.email,service:alert.service,service_id:alert.serviceId});setModal(null);setNotice('Alerte enregistrée.')}} className="space-y-4"><label className="label">E-mail *</label><input required type="email" className={field} value={alert.email} onChange={e=>setAlert({...alert,email:e.target.value})}/><label className="label">Service *</label><input className={field} value={alert.service} onChange={e=>setAlert({...alert,service:e.target.value,serviceId:''})}/><div className="flex flex-wrap gap-2">{alertServices.map(s=><button type="button" key={s.id} onClick={()=>setAlert({...alert,service:s.name,serviceId:s.id})} className="rounded-full border border-slate-700 px-3 py-2 text-xs font-bold">{s.name}</button>)}</div><button disabled={!alert.serviceId} className="w-full rounded-xl bg-emerald-400 py-3 font-black text-slate-950 disabled:opacity-40">Créer l’alerte</button></form><button onClick={()=>setModal('manage')} className="mt-4 w-full text-sm font-bold text-emerald-400">Déjà inscrit ? Gérer mes alertes</button></Modal>}
-  {modal==='manage'&&<Modal title="Gérer mes alertes" onClose={()=>setModal(null)}><form onSubmit={async e=>{e.preventDefault();await requestAlertManagement(manageEmail);setManageSent(true)}} className="space-y-4"><input required type="email" className={field} value={manageEmail} onChange={e=>setManageEmail(e.target.value)} placeholder="votre@email.fr"/><button className="w-full rounded-xl bg-emerald-400 py-3 font-black text-slate-950">Recevoir mon lien sécurisé</button>{manageSent&&<p className="text-sm text-emerald-300">Si cette adresse possède des alertes, le lien a été envoyé.</p>}</form></Modal>}
-  {modal==='suggest'&&<Modal title="Suggérer un service" onClose={()=>setModal(null)}><form onSubmit={async e=>{e.preventDefault();await createSuggestion(suggestion);setModal(null);setNotice('Suggestion envoyée.')}} className="space-y-4"><input required className={field} placeholder="Nom du service" value={suggestion.name} onChange={e=>setSuggestion({...suggestion,name:e.target.value})}/><select className={field} value={suggestion.category} onChange={e=>setSuggestion({...suggestion,category:e.target.value})}>{meta.catalog.categories.map(c=><option key={c.id}>{c.name}</option>)}</select><input className={field} placeholder="URL ou indication (optionnel)" value={suggestion.website} onChange={e=>setSuggestion({...suggestion,website:e.target.value})}/><button className="w-full rounded-xl bg-emerald-400 py-3 font-black text-slate-950">Envoyer</button></form></Modal>}
-  {reporting&&<Modal title={t.reportTitle} onClose={()=>setReporting(null)}><div className="space-y-3">{[['no_seats',t.noSeats],['invalid_link',t.invalidLink],['wrong_info',t.wrongInfo]].map(([v,l])=><label key={v} className="flex items-center gap-3 rounded-xl border border-slate-700 p-3"><input type="radio" checked={reportReason===v} onChange={()=>setReportReason(v)}/>{l}</label>)}<button onClick={sendReport} className="w-full rounded-xl bg-red-500 py-3 font-black text-white">{t.submitReport}</button></div></Modal>}
- </div>
+function normalize(value='') { return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() }
+function isExpired(offer) { return new Date(offer.expires_at).getTime() <= Date.now() }
+function shuffleStable(items) {
+  const key = 'gosharesplit-session-order'
+  let order = JSON.parse(sessionStorage.getItem(key) || '{}')
+  for (const item of items) if (!(item.id in order)) order[item.id] = Math.random()
+  sessionStorage.setItem(key, JSON.stringify(order))
+  return [...items].sort((a,b) => order[a.id] - order[b.id])
+}
+function randomServices(limit=14) {
+  const key = 'gosharesplit-random-services'
+  const saved = sessionStorage.getItem(key)
+  if (saved) {
+    const ids = JSON.parse(saved)
+    return ids.map(id => serviceCatalog.find(item => item.id === id)).filter(Boolean).slice(0, limit)
+  }
+  const items = [...serviceCatalog].sort(() => Math.random() - 0.5).slice(0, limit)
+  sessionStorage.setItem(key, JSON.stringify(items.map(item => item.id)))
+  return items
+}
+function matchingServices(query, limit=14, selectedCategory='Autre') {
+  const q = normalize(query).trim()
+  const pool = selectedCategory === 'Autre'
+    ? serviceCatalog
+    : serviceCatalog.filter(item => item.category === selectedCategory)
+  if (!q) {
+    if (selectedCategory === 'Autre') return randomServices(limit)
+    return pool.slice(0, limit)
+  }
+  return pool
+    .filter(item => normalize(`${item.name} ${item.category}`).includes(q))
+    .sort((a,b) => {
+      const aStart = normalize(a.name).startsWith(q) ? 1 : 0
+      const bStart = normalize(b.name).startsWith(q) ? 1 : 0
+      return bStart - aStart || a.name.localeCompare(b.name, 'fr')
+    }).slice(0, limit)
+}
+
+export default function HomePage() {
+  const [offers, setOffers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('Toutes')
+  const [platform, setPlatform] = useState('Toutes')
+  const [sort, setSort] = useState('featured')
+  const [view, setView] = useState('grid')
+  const [theme, setTheme] = useState(() => localStorage.getItem('gosharesplit-theme') || 'dark')
+  const [modal, setModal] = useState(null)
+  const [notice, setNotice] = useState('')
+  const [form, setForm] = useState(initialForm)
+  const [alert, setAlert] = useState(initialAlert)
+  const [suggestion, setSuggestion] = useState(initialSuggestion)
+  const [error, setError] = useState('')
+  const [alertError, setAlertError] = useState('')
+  const [manageEmail, setManageEmail] = useState('')
+  const [manageSent, setManageSent] = useState(false)
+  const [reporting, setReporting] = useState(null)
+  const [reportReason, setReportReason] = useState('no_seats')
+  const categoriesRef = useRef(null)
+
+  function scrollCategories(direction) {
+    categoriesRef.current?.scrollBy({ left: direction * Math.max(260, categoriesRef.current.clientWidth * 0.72), behavior: 'smooth' })
+  }
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.classList.toggle('light', theme === 'light')
+    localStorage.setItem('gosharesplit-theme', theme)
+  }, [theme])
+
+  async function refresh() {
+    try { setOffers(await listOffers()) }
+    catch (e) { setNotice(`Erreur de chargement : ${e.message}`) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { refresh() }, [])
+  useEffect(() => { if (!notice) return; const t=setTimeout(()=>setNotice(''),3500); return()=>clearTimeout(t) }, [notice])
+
+  const offerServices = useMemo(() => matchingServices(form.service, 14, form.category), [form.service, form.category])
+  const alertServices = useMemo(() => matchingServices(alert.service, 10), [alert.service])
+
+  const visibleOffers = useMemo(() => {
+    const q = normalize(search)
+    const filtered = offers.filter(o => !o.hidden && !isExpired(o)
+      && (category==='Toutes'||o.category===category)
+      && (platform==='Toutes'||o.platform===platform)
+      && (!q || normalize(`${o.service} ${o.plan} ${o.category} ${o.platform}`).includes(q)))
+    if (sort === 'newest') return [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at))
+    if (sort === 'price') return [...filtered].sort((a,b)=>Number(a.price)-Number(b.price))
+    if (sort === 'seats') return [...filtered].sort((a,b)=>Number(b.seats)-Number(a.seats))
+    const recent = [...filtered].sort((a,b)=>new Date(b.published_at)-new Date(a.published_at)).slice(0,3)
+    const rest = filtered.filter(o => !recent.some(r => r.id===o.id))
+    return [...recent, ...shuffleStable(rest)]
+  }, [offers, search, category, platform, sort])
+
+  function updateLink(link) { setForm(f => ({...f, link, platform:detectPlatform(link)})); setError('') }
+  function updateOfferService(value) { setForm(f => ({...f, service:value, serviceId:'', icon:categoryIcons[f.category] || '📦'})); setError('') }
+  function chooseOfferService(item) { setForm(f => ({...f, service:item.name, serviceId:item.id, category:item.category, icon:item.icon})); setError('') }
+  function clearOfferService() { setForm(f => ({...f, service:'', serviceId:'', icon:categoryIcons[f.category] || '📦'})); setError('') }
+  function updateOfferCategory(value) { setForm(f => ({...f, category:value, service:'', serviceId:'', icon:categoryIcons[value] || '📦'})); setError('') }
+  function updateAlertService(value) { setAlert(a => ({...a, service:value, serviceId:''})); setAlertError('') }
+  function chooseAlertService(item) { setAlert(a => ({...a, service:item.name, serviceId:item.id})); setAlertError('') }
+  function openSuggestion(source, name='') {
+    setSuggestion({ ...initialSuggestion, source, name:name.trim() })
+    setModal('suggest')
+  }
+
+  async function submitOffer(e) {
+    e.preventDefault(); setError('')
+    const detected = detectPlatform(form.link)
+    if (!detected) { setError(invalidLinkMessage); return }
+    if (!form.serviceId) { setError('Sélectionne obligatoirement un service dans la liste proposée.'); return }
+    if (Number(form.price)<=0 || Number(form.seats)<0) { setError('Merci de remplir correctement tous les champs obligatoires.'); return }
+    if (offers.some(o => o.link === form.link.trim())) { setError('Cette annonce a déjà été publiée. Merci de ne pas soumettre le même lien plusieurs fois.'); return }
+    const now = new Date()
+    const payload = {
+      service:form.service, plan:form.plan.trim(), price:Number(form.price), seats:Number(form.seats), link:form.link.trim(),
+      platform:detected, category:form.category, icon:form.icon, reports_count:0,
+      published_at:now.toISOString(), expires_at:new Date(now.getTime()+45*86400000).toISOString(), hidden:false,
+    }
+    try { await createOffer(payload); await refresh(); setForm(initialForm); setModal(null); setNotice('Votre annonce a été publiée avec succès.') }
+    catch (e2) { setError(e2.message?.includes('duplicate') ? 'Cette annonce existe déjà.' : e2.message) }
+  }
+
+  async function submitReport() {
+    if (!reporting) return
+    try {
+      await reportOffer(reporting.id, reportReason)
+      await refresh()
+      setReporting(null)
+      setNotice('Signalement enregistré.')
+    } catch (e) {
+      setNotice(e.message==='already_reported' ? 'Vous avez déjà signalé cette annonce.' : 'Impossible d’enregistrer ce signalement.')
+    }
+  }
+
+  async function submitSuggestion(e) {
+    e.preventDefault()
+    await createSuggestion({
+      name: suggestion.name.trim(),
+      category: suggestion.category,
+      website: suggestion.website.trim(),
+      source: suggestion.source,
+    })
+    setSuggestion(initialSuggestion); setModal(null)
+    setNotice('Service suggéré. Il sera vérifié avant d’être ajouté au catalogue.')
+  }
+
+  async function submitAlert(e) {
+    e.preventDefault(); setAlertError('')
+    if (!alert.serviceId) { setAlertError('Sélectionne obligatoirement un service dans la liste proposée.'); return }
+    await createAlert({ email:alert.email.trim(), service:alert.service, service_id:alert.serviceId, active:true })
+    setAlert(initialAlert); setNotice('Alerte enregistrée pour ce service.'); setModal(null)
+  }
+
+  async function submitManageAlerts(e) {
+    e.preventDefault()
+    setManageSent(false)
+    try {
+      await requestAlertManagement(manageEmail.trim())
+      setManageSent(true)
+    } catch {
+      setManageSent(true)
+    }
+  }
+
+  const field = 'w-full rounded-2xl border border-slate-700/80 bg-slate-950/55 px-4 py-3.5 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10 light:border-slate-300 light:bg-white'
+  const servicePill = 'rounded-full border border-slate-700 px-3 py-1.5 text-xs font-bold transition hover:border-emerald-400 hover:bg-emerald-400/10 light:border-slate-300'
+
+  return (
+    <div className="min-h-screen bg-[#06101d] text-slate-100 transition-colors light:bg-[#e8edf3] light:text-slate-900">
+      {notice && <div className="fixed left-1/2 top-4 z-[80] flex max-w-[92vw] -translate-x-1/2 items-center gap-2 rounded-2xl border border-emerald-300/30 bg-emerald-400 px-5 py-3 font-bold text-slate-950 shadow-2xl"><CheckCircle2 size={18}/>{notice}</div>}
+
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-[#06101d]/82 backdrop-blur-2xl light:border-slate-300/70 light:bg-[#eef2f6]/88">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <a href="#top" className="flex items-center gap-2.5 text-xl font-black tracking-tight"><span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-300 to-cyan-400 text-slate-950 shadow-glow"><Sparkles size={19}/></span><span>GoShare<span className="text-emerald-400">Split</span></span></a>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="icon-btn" aria-label="Changer de thème">{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button>
+            <button onClick={()=>openSuggestion('menu')} className="hidden items-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 text-sm font-semibold transition hover:border-slate-500 md:flex light:border-slate-300"><Wrench size={17}/>Suggérer un service</button>
+            <button onClick={()=>setModal('publish')} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Proposer une annonce</span><span className="sm:hidden">Publier</span></button>
+            <a href="#/admin" className="icon-btn" aria-label="Administration" title="Administration"><LockKeyhole size={18}/></a>
+          </div>
+        </div>
+      </header>
+
+      <main id="top">
+        <section className="relative overflow-hidden px-4 pb-14 pt-16 sm:pb-20 sm:pt-24">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(52,211,153,.18),transparent_32%),radial-gradient(circle_at_80%_10%,rgba(56,189,248,.15),transparent_30%)]"/>
+          <div className="relative mx-auto max-w-5xl text-center">
+            <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-black uppercase tracking-[.18em] text-emerald-300 light:text-emerald-700"><ShieldCheck size={15}/>Le répertoire indépendant</div>
+            <h1 className="text-balance text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">Tous vos partages d’abonnement, <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400 bg-clip-text text-transparent">au même endroit.</span></h1>
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">Trouvez rapidement une place disponible sur Spliiit, Sharesub ou GoSplit. Les paiements restent gérés par les plateformes d’origine.</p>
+            <form onSubmit={e=>{e.preventDefault(); document.querySelector('#annonces')?.scrollIntoView()}} className="mx-auto mt-8 flex max-w-2xl gap-2 rounded-2xl border border-slate-700/70 bg-slate-900/70 p-2 shadow-2xl light:border-slate-300 light:bg-white"><Search className="ml-2 self-center text-emerald-400" size={21}/><input value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent px-2 outline-none" placeholder="Rechercher Netflix, Spotify, VPN, ChatGPT…"/><button className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950">Rechercher</button></form>
+            <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-bold"><span className="trust-pill">Publication gratuite</span><span className="trust-pill">Paiement sécurisé sur la plateforme</span><span className="trust-pill">Expiration après 45 jours</span></div>
+          </div>
+        </section>
+
+        <section id="annonces" className="mx-auto max-w-7xl px-4 pb-20 sm:px-6">
+          <div className="mb-6 min-w-0 overflow-hidden rounded-3xl border border-white/5 bg-slate-900/50 p-4 backdrop-blur-xl light:border-slate-300/70 light:bg-white/70">
+            <div className="relative flex min-w-0 items-center gap-2">
+              <button type="button" onClick={()=>scrollCategories(-1)} className="category-arrow shrink-0" aria-label="Voir les catégories précédentes"><ChevronLeft size={20}/></button>
+              <div ref={categoriesRef} className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-1 py-1 scrollbar-none">
+                {categories.map(c=><button key={c} onClick={()=>setCategory(c)} className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-bold transition ${category===c?'bg-emerald-400 text-slate-950':'bg-slate-800/80 text-slate-300 hover:bg-slate-700 light:bg-slate-200 light:text-slate-700 light:hover:bg-slate-300'}`}>{c==='Toutes'?'✨':categoryIcons[c]} {c}</button>)}
+              </div>
+              <button type="button" onClick={()=>scrollCategories(1)} className="category-arrow shrink-0" aria-label="Voir les catégories suivantes"><ChevronRight size={20}/></button>
+            </div>
+            <div className="mt-3 grid gap-3 border-t border-white/5 pt-4 lg:grid-cols-[1fr_auto] lg:items-end light:border-slate-300">
+              <div><h2 className="text-2xl font-black">Annonces disponibles</h2><p className="text-sm text-slate-500">{visibleOffers.length} résultat{visibleOffers.length>1?'s':''}{search ? ` pour « ${search} »` : ''}</p></div>
+              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(170px,1fr)_auto]">
+                <div className="min-w-0"><select value={platform} onChange={e=>setPlatform(e.target.value)} className="control-select-native w-full" aria-label="Filtrer par plateforme">{platforms.map(p=><option key={p}>{p}</option>)}</select></div>
+                <div className="min-w-0"><select value={sort} onChange={e=>setSort(e.target.value)} className="control-select-native w-full" aria-label="Trier les annonces"><option value="featured">Recommandées</option><option value="newest">Plus récentes</option><option value="price">Prix croissant</option><option value="seats">Plus de places</option></select></div>
+                <div className="flex justify-self-start rounded-xl border border-slate-700 p-1 sm:justify-self-end light:border-slate-300"><button onClick={()=>setView('grid')} className={`rounded-lg p-2 ${view==='grid'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue grille"><LayoutGrid size={17}/></button><button onClick={()=>setView('list')} className={`rounded-lg p-2 ${view==='list'?'bg-slate-700 light:bg-slate-200':''}`} aria-label="Vue liste"><List size={17}/></button></div>
+              </div>
+            </div>
+          </div>
+
+          {loading ? <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i=><div key={i} className="h-72 animate-pulse rounded-3xl bg-slate-800/60 light:bg-slate-300"/>)}</div>
+          : visibleOffers.length ? <div className={view==='grid'?'grid gap-5 md:grid-cols-2 lg:grid-cols-3':'grid gap-4'}>{visibleOffers.map((offer,index)=><OfferCard key={offer.id} offer={offer} onReport={(id)=>setReporting(offers.find(o=>o.id===id)||{id})} featured={sort==='featured'&&index<3} list={view==='list'}/>)}</div>
+          : <div className="rounded-3xl border border-dashed border-slate-700 py-20 text-center light:border-slate-400"><Search className="mx-auto mb-4 text-slate-500" size={38}/><h3 className="text-xl font-black">Aucune annonce trouvée</h3><p className="mt-2 text-slate-500">Modifie tes filtres ou crée une alerte.</p><button onClick={()=>setModal('alert')} className="mt-5 rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950">Créer une alerte</button></div>}
+
+          <section className="relative mt-14 overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-gradient-to-br from-emerald-400/15 via-slate-900/80 to-sky-400/10 p-6 sm:p-9 light:from-emerald-100 light:via-white light:to-sky-100"><div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div className="max-w-2xl"><div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={21}/></div><h2 className="text-2xl font-black sm:text-3xl">L’annonce que tu cherches n’est pas encore disponible ?</h2><p className="mt-2 text-slate-400 light:text-slate-600">Choisis un service du catalogue et sois informé dès qu’une annonce correspondante est publiée.</p></div><button onClick={()=>setModal('alert')} className="shrink-0 rounded-2xl bg-emerald-400 px-6 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Créer une alerte gratuite</button></div></section>
+        </section>
+      </main>
+
+      <footer className="border-t border-white/5 bg-slate-950/35 px-4 py-8 text-center text-sm text-slate-500 light:border-slate-300 light:bg-slate-200/70"><p className="font-black text-slate-300 light:text-slate-700">GoShareSplit</p><p className="mx-auto mt-2 max-w-3xl">Site indépendant. Paiements uniquement sur Spliiit, Sharesub et GoSplit. Les annonces expirent automatiquement après 45 jours.</p></footer>
+
+      {modal==='publish' && <Modal title="Proposer une annonce" onClose={()=>setModal(null)} wide><form onSubmit={submitOffer} className="space-y-5">
+        <div className="rounded-2xl border border-sky-400/20 bg-sky-400/8 p-4 text-sm text-sky-200 light:text-sky-800"><strong>Étape 1 :</strong> colle le lien de partage fourni par Spliiit, Sharesub ou GoSplit. La plateforme sera détectée automatiquement.</div>
+        <label className="block"><span className="label">Lien de partage *</span><input required className={field} value={form.link} onChange={e=>updateLink(e.target.value)} placeholder="https://…"/></label>
+        {form.platform && <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300 light:text-emerald-700"><CheckCircle2 size={16}/>Plateforme détectée : {form.platform}</div>}
+        <div className="grid gap-4 sm:grid-cols-3"><label><span className="label">Catégorie *</span><select required className={field} value={form.category} onChange={e=>updateOfferCategory(e.target.value)}>{categories.filter(c=>c!=='Toutes').map(c=><option key={c}>{c}</option>)}</select></label><label><span className="label">Service *</span><input required className={field} value={form.service} onChange={e=>updateOfferService(e.target.value)} placeholder="Commence à saisir un service…"/></label><label><span className="label">Offre / formule</span><input className={field} value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})} placeholder="Premium 4K, Famille…"/></label></div>
+        <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto pr-1">{offerServices.map(item=><button type="button" key={item.id} onClick={()=>chooseOfferService(item)} className={`${servicePill} ${form.serviceId===item.id?'border-emerald-400 bg-emerald-400/15 text-emerald-300 light:text-emerald-700':''}`}>{item.icon} {item.name}{form.serviceId===item.id && <X onClick={e=>{e.stopPropagation();clearOfferService()}} className="ml-1 inline text-red-400 hover:text-red-300" size={14}/>}</button>)}</div>
+        {form.service.trim() && offerServices.length===0 && <button type="button" onClick={()=>openSuggestion('publish', form.service)} className="w-full rounded-2xl border border-dashed border-emerald-400/50 p-4 text-sm font-bold text-emerald-300 hover:bg-emerald-400/10 light:text-emerald-700">Service introuvable ? Suggérer « {form.service} »</button>}
+        {form.serviceId && <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-300 light:text-emerald-700"><span>✓ {form.service} sélectionné · Catégorie : {form.category}</span><button type="button" onClick={clearOfferService} className="rounded-full p-1 text-red-400 hover:bg-red-400/10" title="Désélectionner le service"><X size={16}/></button></div>}
+        <div className="grid gap-4 sm:grid-cols-2"><label><span className="label">Prix mensuel (€) *</span><input required min="0.01" step="0.01" type="number" className={field} value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label><span className="label">Places disponibles *</span><input required min="0" type="number" className={field} value={form.seats} onChange={e=>setForm({...form,seats:e.target.value})}/></label></div>
+        {error && <p className="rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-400">{error}</p>}
+        <button className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Publier l’annonce</button><p className="text-center text-xs text-slate-500">Publication immédiate dans le catalogue.</p>
+      </form></Modal>}
+
+      {modal==='suggest' && <Modal title="Suggérer un service" onClose={()=>setModal(null)}><form onSubmit={submitSuggestion} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Le service sera vérifié avant d’être ajouté au catalogue. Une fois accepté, il pourra être utilisé dans les annonces et les alertes.</p><label><span className="label">Nom du service *</span><input required className={field} placeholder="" value={suggestion.name} onChange={e=>setSuggestion({...suggestion,name:e.target.value})}/></label><label><span className="label">Catégorie proposée *</span><select required className={field} value={suggestion.category} onChange={e=>setSuggestion({...suggestion,category:e.target.value})}>{categories.filter(c=>c!=='Toutes').map(c=><option key={c}>{c}</option>)}</select></label><label><span className="label">Site officiel (optionnel)</span><input className={field} placeholder="exemple.com ou toute autre indication" value={suggestion.website} onChange={e=>setSuggestion({...suggestion,website:e.target.value})}/></label><button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Envoyer la suggestion</button></form></Modal>}
+
+      {modal==='alert' && <Modal title="Créer une alerte" onClose={()=>setModal(null)}><form onSubmit={submitAlert} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Choisis précisément un service du catalogue. Tu seras ainsi prévenu lorsqu’une annonce pour ce même service sera publiée.</p><label className="block"><span className="label">Adresse e-mail *</span><input required type="email" className={field} value={alert.email} onChange={e=>setAlert({...alert,email:e.target.value})} placeholder="toi@email.fr"/></label><label className="block"><span className="label">Service recherché *</span><input required className={field} value={alert.service} onChange={e=>updateAlertService(e.target.value)} placeholder="Commence à saisir Apple, Netflix…"/></label><div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">{alertServices.map(item=><button type="button" key={item.id} onClick={()=>chooseAlertService(item)} className={`${servicePill} ${alert.serviceId===item.id?'border-emerald-400 bg-emerald-400/15 text-emerald-300 light:text-emerald-700':''}`}>{item.icon} {item.name}</button>)}</div>{alert.service.trim() && alertServices.length===0 && <button type="button" onClick={()=>openSuggestion('alert', alert.service)} className="w-full rounded-2xl border border-dashed border-emerald-400/50 p-4 text-sm font-bold text-emerald-300 hover:bg-emerald-400/10 light:text-emerald-700">Aucun service trouvé. Suggérer « {alert.service} »</button>}{alert.serviceId && <p className="text-sm font-semibold text-emerald-300 light:text-emerald-700">✓ Alerte liée exactement à {alert.service}</p>}{alertError && <p className="rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-400">{alertError}</p>}<button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Activer l’alerte</button><button type="button" onClick={()=>{setManageEmail(alert.email);setManageSent(false);setModal('manage-alerts')}} className="w-full text-sm font-bold text-emerald-300 underline-offset-4 hover:underline light:text-emerald-700">Déjà inscrit ? Gérer mes alertes</button></form></Modal>}
+      {modal==='manage-alerts' && <Modal title="Gérer mes alertes" onClose={()=>setModal(null)}>{manageSent ? <div className="space-y-4"><p className="rounded-2xl bg-emerald-400/10 p-4 text-sm font-semibold text-emerald-300 light:text-emerald-700">Si cette adresse possède des alertes, un lien sécurisé vient d’être envoyé. Pense à vérifier les courriers indésirables.</p><button onClick={()=>setModal(null)} className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Fermer</button></div> : <form onSubmit={submitManageAlerts} className="space-y-4"><p className="text-sm text-slate-400 light:text-slate-600">Saisis l’adresse utilisée pour tes alertes. Tu recevras un lien personnel, sans mot de passe.</p><label className="block"><span className="label">Adresse e-mail *</span><input required type="email" className={field} value={manageEmail} onChange={e=>setManageEmail(e.target.value)} placeholder="toi@email.fr"/></label><button className="w-full rounded-2xl bg-emerald-400 px-4 py-3.5 font-black text-slate-950">Recevoir mon lien sécurisé</button></form>}</Modal>}
+      {reporting && <Modal title="Signaler une annonce" onClose={()=>setReporting(null)}><div className="space-y-3">{[['no_seats','Plus de places'],['invalid_link','Lien invalide'],['wrong_info','Informations erronées']].map(([value,label])=><label key={value} className="flex items-center gap-3 rounded-2xl border border-slate-700 p-4 light:border-slate-300"><input type="radio" name="report-reason" checked={reportReason===value} onChange={()=>setReportReason(value)}/><span className="font-bold">{label}</span></label>)}<button onClick={submitReport} className="w-full rounded-2xl bg-red-500 px-4 py-3.5 font-black text-white">Envoyer le signalement</button></div></Modal>}
+
+    </div>
+  )
 }

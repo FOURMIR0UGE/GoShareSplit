@@ -10,7 +10,7 @@ const btn='rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold hover:
 export default function AdminPage(){
  const [session,setSession]=useState(null),[login,setLogin]=useState({username:'',password:''}),[error,setError]=useState(''),[tab,setTab]=useState('dashboard'),[data,setData]=useState({}),[editing,setEditing]=useState(null),[backup,setBackup]=useState('')
  useEffect(()=>{getAdminSession().then(setSession)},[])
- async function load(name=tab){if(!session?.authenticated)return;const actions={dashboard:'admin-dashboard',offers:'admin-list',suggestions:'admin-suggestions',categories:'admin-catalog',services:'admin-catalog',alerts:'admin-alerts',users:'admin-users',settings:'admin-settings',activity:'admin-activity'};if(actions[name])setData(d=>({...d,[name]:await adminGet(actions[name])}))}
+ async function load(name=tab){if(!session?.authenticated)return;const actions={dashboard:'admin-dashboard',offers:'admin-list',suggestions:'admin-suggestions',categories:'admin-catalog',services:'admin-catalog',alerts:'admin-alerts',users:'admin-users',settings:'admin-settings',activity:'admin-activity'};if(actions[name]){const result=await adminGet(actions[name]);setData(d=>({...d,[name]:result}))}}
  useEffect(()=>{load(tab)},[tab,session?.authenticated])
  async function doLogin(e){e.preventDefault();try{const r=await adminLogin(login.username,login.password);setSession({authenticated:true,csrf:r.csrf,user:r.user})}catch{setError('Identifiants incorrects.')}}
  async function post(action,payload={}){await adminPost(action,payload,session.csrf);await load(tab)}
