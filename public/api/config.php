@@ -22,4 +22,5 @@ define('CATALOG_FILE', DATA_DIR . '/catalog.json');
 define('SETTINGS_FILE', DATA_DIR . '/settings.json');
 define('USERS_FILE', DATA_DIR . '/users.json');
 define('ACTIVITY_FILE', DATA_DIR . '/activity.json');
+define('TRASH_FILE', DATA_DIR . '/trash.json');
 define('LEGACY_DATA_DIR', __DIR__ . '/data');

@@ -63,6 +63,8 @@ export default function HomePage() {
   const [reporting, setReporting] = useState(null)
   const [reportReason, setReportReason] = useState('no_seats')
   const categoriesRef = useRef(null)
+  const siteTexts = publicMeta.settings?.site_texts || {}
+  const text = (key, fallback) => siteTexts[key]?.trim() || fallback
 
   function hasAdminPermission(permission) {
     const user = adminSession?.user
@@ -314,7 +316,7 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             <button onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="icon-btn" aria-label="Changer de thème">{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button>
             {adminSession?.authenticated&&<a href="#/admin" className="icon-btn" aria-label="Retourner au panneau d’administration" title="Panneau d’administration"><LockKeyhole size={18}/></a>}
-            <button onClick={()=>{setEditingOffer(null);setForm(initialForm);setError('');setModal('publish')}} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">Ajouter une annonce</span><span className="sm:hidden">Publier</span></button>
+            <button onClick={()=>{setEditingOffer(null);setForm(initialForm);setError('');setModal('publish')}} className="flex items-center gap-2 rounded-xl bg-emerald-400 px-3.5 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300"><Plus size={18}/><span className="hidden sm:inline">{text('publish_button','Ajouter une annonce')}</span><span className="sm:hidden">{text('publish_mobile_button','Publier')}</span></button>
             <button onClick={()=>{setManageSent(false);setModal('manage-alerts')}} className="icon-btn" aria-label="Gérer mes alertes" title="Gérer mes alertes"><Bell size={18}/></button>
           </div>
         </div>
@@ -324,9 +326,9 @@ export default function HomePage() {
         <section className="relative overflow-hidden px-4 pb-14 pt-16 sm:pb-20 sm:pt-24">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(52,211,153,.18),transparent_32%),radial-gradient(circle_at_80%_10%,rgba(56,189,248,.15),transparent_30%)]"/>
           <div className="relative mx-auto max-w-5xl text-center">
-            <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-black uppercase tracking-[.18em] text-emerald-300 light:text-emerald-700"><ShieldCheck size={15}/>Le répertoire indépendant</div>
-            <h1 className="text-balance text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">Tous vos partages d’abonnement, <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400 bg-clip-text text-transparent">au même endroit.</span></h1>
-            <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">Trouvez rapidement une place disponible sur Spliiit, Sharesub ou GoSplit. Les paiements restent gérés par les plateformes d’origine.</p>
+            <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-black uppercase tracking-[.18em] text-emerald-300 light:text-emerald-700"><ShieldCheck size={15}/>{text('hero_badge','Le répertoire indépendant')}</div>
+            <h1 className="text-balance text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">{text('hero_title','Tous vos partages d’abonnement,')} <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400 bg-clip-text text-transparent">{text('hero_highlight','au même endroit.')}</span></h1>
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">{text('hero_subtitle','Trouvez rapidement une place disponible sur Spliiit, Sharesub ou GoSplit. Les paiements restent gérés par les plateformes d’origine.')}</p>
             <form onSubmit={e=>{e.preventDefault(); document.querySelector('#annonces')?.scrollIntoView()}} className="mx-auto mt-8 flex max-w-2xl gap-2 rounded-2xl border border-slate-700/70 bg-slate-900/70 p-2 shadow-2xl light:border-slate-300 light:bg-white"><Search className="ml-2 self-center text-emerald-400" size={21}/><input value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent px-2 outline-none" placeholder="Rechercher Netflix, Spotify, VPN, ChatGPT…"/><button className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-slate-950">Rechercher</button></form>
             <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-bold"><span className="trust-pill">Publication gratuite</span><span className="trust-pill">Paiement sécurisé sur la plateforme</span><span className="trust-pill">Expiration après 45 jours</span></div>
           </div>
@@ -362,14 +364,14 @@ export default function HomePage() {
                     <p className="mt-2 text-sm leading-relaxed text-slate-400 light:text-slate-600">Choisis un service et reçois une alerte dès qu’une annonce correspondante est publiée.</p>
                   </div>
                 </div>
-                <button onClick={()=>setModal('alert')} className={`${view==='list'?'mt-5 shrink-0 sm:mt-0':'mt-6 w-full'} rounded-2xl bg-emerald-400 px-5 py-3.5 font-black text-slate-950 transition hover:bg-emerald-300`}>Créer une alerte gratuite</button>
+                <button onClick={()=>setModal('alert')} className={`${view==='list'?'mt-5 shrink-0 sm:mt-0':'mt-6 w-full'} rounded-2xl bg-emerald-400 px-5 py-3.5 font-black text-slate-950 transition hover:bg-emerald-300`}>{text('alert_button','Créer une alerte gratuite')}</button>
               </article>
             </div>
           : <div className="relative overflow-hidden rounded-[2rem] border border-emerald-300/20 bg-gradient-to-br from-emerald-400/15 via-slate-900/85 to-sky-400/10 px-6 py-16 text-center shadow-xl sm:px-10 sm:py-24 light:from-emerald-100 light:via-white light:to-sky-100">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950"><Bell size={30}/></div>
-              <h3 className="mx-auto mt-6 max-w-2xl text-3xl font-black sm:text-4xl">L’annonce que tu cherches n’est pas encore disponible ?</h3>
-              <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">Aucune annonce ne correspond actuellement à ta recherche. Crée une alerte et sois informé dès qu’une offre pour ce service est publiée.</p>
-              <button onClick={()=>setModal('alert')} className="mt-7 rounded-2xl bg-emerald-400 px-7 py-4 font-black text-slate-950 transition hover:bg-emerald-300">Créer une alerte gratuite</button>
+              <h3 className="mx-auto mt-6 max-w-2xl text-3xl font-black sm:text-4xl">{text('empty_title','L’annonce que tu cherches n’est pas encore disponible ?')}</h3>
+              <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg light:text-slate-600">{text('empty_subtitle','Aucune annonce ne correspond actuellement à ta recherche. Crée une alerte et sois informé dès qu’une offre pour ce service est publiée.')}</p>
+              <button onClick={()=>setModal('alert')} className="mt-7 rounded-2xl bg-emerald-400 px-7 py-4 font-black text-slate-950 transition hover:bg-emerald-300">{text('alert_button','Créer une alerte gratuite')}</button>
             </div>}
         </section>
       </main>
